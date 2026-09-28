@@ -47,5 +47,6 @@ debug_model_inputs/**
 temp_dir/**
 scratch/
 sample_data/
+.local_calibration/
 external_ckpts/
 external/MANO/

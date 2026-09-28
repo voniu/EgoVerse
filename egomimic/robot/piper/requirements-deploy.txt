@@ -1,0 +1,2 @@
+piper_sdk==0.6.2
+pyrealsense2==2.58.4.10922

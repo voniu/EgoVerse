@@ -1,0 +1,43 @@
+defaults:
+- hpt_piper_flow
+- _self_
+
+robomimic_model:
+  auxiliary_ac_keys:
+    piper_right_arm: [actions_joints]
+  stem_specs:
+    piper_right_arm:
+      state_ee_pose: null
+      state_joints:
+        _target_: egomimic.models.hpt_nets.MLPPolicyStem
+        input_dim: 7
+        output_dim: 256
+        widths: [256]
+        specs:
+          random_horizon_masking: false
+          cross_attn:
+            crossattn_latent: 16
+            crossattn_heads: 8
+            crossattn_dim_head: 64
+            crossattn_modality_dropout: 0.1
+            modality_embed_dim: 256
+  head_specs:
+    piper_right_arm_actions_joints:
+      _target_: egomimic.models.fm_policy.FMPolicy
+      action_horizon: ${action_horizon}
+      num_inference_steps: 50
+      pooling: null
+      time_dist: beta
+      infer_ac_dims:
+        piper_right_arm: 7
+      model:
+        _target_: egomimic.models.denoising_nets.CrossTransformer
+        nblocks: 6
+        cond_dim: 256
+        hidden_dim: 128
+        act_dim: 7
+        act_seq: ${action_horizon}
+        n_heads: 4
+        dropout: 0.1
+        mlp_layers: 4
+        mlp_ratio: 4

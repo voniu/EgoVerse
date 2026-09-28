@@ -1,0 +1,12 @@
+defaults:
+  - train_piper_human
+  - _self_
+
+name: piper_b_smoke
+batch_size: 2
+num_workers: 0
+trainer:
+  max_steps: 10
+  limit_train_batches: 10
+  limit_val_batches: 1
+  log_every_n_steps: 1

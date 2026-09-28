@@ -1,0 +1,14 @@
+defaults:
+  - train_piper
+  - _self_
+
+name: piper_a_smoke
+batch_size: 2
+num_workers: 0
+
+# Same network and episode split as A; only shorten the run.
+trainer:
+  max_steps: 10
+  limit_train_batches: 10
+  limit_val_batches: 1
+  log_every_n_steps: 1

@@ -1,0 +1,39 @@
+# Units: meters, radians. Quaternions: [x, y, z, w].
+# Transforms map child coordinates into parent coordinates.
+# URDF path is relative to the repository root.
+# Raw feedback only: q_model = signs * radians(q_raw * degrees_per_raw_joint_unit) + offsets_rad
+# Sources and conventions: docs/calibration/piper_parameters.md
+
+cameras:
+  d435if:
+    serial: '327122075831'
+    intrinsics:
+      width: 640
+      height: 480
+      K:
+      - [607.70166015625, 0.0, 330.5779724121094]
+      - [0.0, 607.6002807617188, 249.32542419433594]
+      - [0.0, 0.0, 1.0]
+      distortion_model: inverse_brown_conrady
+      distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]
+    extrinsics:
+      parent_frame: base_link
+      child_frame: camera_color_optical_frame
+      translation_m: [0.043138, -0.228581, 0.684012]
+      quaternion_xyzw: [-0.712828, 0.680135, -0.154626, 0.073375]
+tcp:
+  parent_frame: link6
+  child_frame: piper_tcp
+  translation_m: [0.0, 0.0, 0.135]
+  quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+kinematics:
+  reference_urdf_path: docs/calibration/piper_l_reference.urdf
+  base_frame: base_link
+  end_frame: link6
+  joint_names: [joint1, joint2, joint3, joint4, joint5, joint6]
+  recorded_sdk_feedback:
+    degrees_per_raw_joint_unit: 0.001
+    gripper_mm_per_raw_unit: 0.001
+  feedback_to_model:
+    signs: [1, 1, 1, 1, 1, 1]
+    offsets_rad: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

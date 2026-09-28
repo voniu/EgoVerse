@@ -16,9 +16,8 @@ from tslearn.metrics import SoftDTWLossPyTorch
 from egomimic.algo.algo import Algo
 from egomimic.models.hpt_nets import MultiheadAttention, SimpleTransformer
 from egomimic.rldb.embodiment.embodiment import get_embodiment, get_embodiment_id
-from egomimic.utils.tensor_utils import EinOpsRearrange, get_sinusoid_encoding_table
 from egomimic.utils.hf_utils import download_from_huggingface
-
+from egomimic.utils.tensor_utils import EinOpsRearrange, get_sinusoid_encoding_table
 
 # Init scale for the HPT action tokens (was a shared constant in utils.py;
 # it has exactly one consumer, below).
@@ -146,6 +145,11 @@ class HPTModel(nn.Module):
             A specification containing configurations for each modality's stem.
         """
 
+        # Hydra inheritance uses ``null`` to remove a modality from a derived
+        # embodiment config (for example Cartesian state -> joint state).
+        stem_spec = {
+            key: value for key, value in stem_spec.items() if value is not None
+        }
         self.stem_spec[domain_name] = stem_spec
         self.modalities[domain_name] = list(stem_spec.keys())
 

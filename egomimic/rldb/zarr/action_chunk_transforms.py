@@ -17,7 +17,6 @@ from typing import Literal
 
 import numpy as np
 import torch
-from projectaria_tools.core.sophus import SE3
 from scipy.spatial.transform import Rotation as R
 
 from egomimic.utils.pose_utils import (
@@ -204,6 +203,9 @@ class ActionChunkCoordinateFrameTransform(Transform):
         target_world_to_matrix_fn = (
             _xyzwxyz_to_matrix if target_world.shape[-1] == 7 else _xyzypr_to_matrix
         )
+        # Aria is optional for already camera-aligned robot datasets.
+        from projectaria_tools.core.sophus import SE3
+
         # Convert to SE3 for transformation
         target_se3 = SE3.from_matrix(
             target_world_to_matrix_fn(target_world[None, :])[0]
@@ -443,6 +445,8 @@ class CartesianWithGripperCoordinateTransform(Transform):
         left_pose_world = chunk_world[:, :6]
         right_pose_world = chunk_world[:, 7:13]
 
+        from projectaria_tools.core.sophus import SE3
+
         left_target_se3 = SE3.from_matrix(
             _xyzypr_to_matrix(left_target_world[None, :])[0]
         )
@@ -512,6 +516,18 @@ class ConcatKeys(Transform):
         return batch
 
 
+class DropKeys(Transform):
+    """Remove intermediate keys after multiple derived representations use them."""
+
+    def __init__(self, keys):
+        self.keys = list(keys)
+
+    def transform(self, batch):
+        for key in self.keys:
+            batch.pop(key, None)
+        return batch
+
+
 class PadGripperZeros(Transform):
     """Pad a 12D bimanual cartesian action chunk to 14D by inserting a zero
     gripper slot at position 6 (end of left arm) and position 13 (end of right
@@ -535,12 +551,8 @@ class PadGripperZeros(Transform):
             )
         pad_shape = (*arr.shape[:-1], 1)
         pad = np.zeros(pad_shape, dtype=arr.dtype)
-        padded = np.concatenate(
-            (arr[..., :6], pad, arr[..., 6:], pad), axis=-1
-        )
-        batch[self.action_key] = (
-            torch.from_numpy(padded) if is_tensor else padded
-        )
+        padded = np.concatenate((arr[..., :6], pad, arr[..., 6:], pad), axis=-1)
+        batch[self.action_key] = torch.from_numpy(padded) if is_tensor else padded
         return batch
 
 

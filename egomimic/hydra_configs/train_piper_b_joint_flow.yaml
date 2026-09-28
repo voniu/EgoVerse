@@ -1,0 +1,11 @@
+defaults:
+- train_piper_human
+- override data: piper_human_joint
+- override model: hpt_piper_human_joint_flow
+- _self_
+
+name: piper_b_joint_flow
+num_workers: 0
+callbacks:
+  final_checkpoint:
+    _target_: egomimic.pl_utils.save_final.SaveFinalCheckpoint

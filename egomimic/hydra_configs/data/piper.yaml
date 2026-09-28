@@ -1,0 +1,33 @@
+_target_: egomimic.pl_utils.pl_data_utils.MultiDataModuleWrapper
+
+train_datasets:
+  piper_right_arm:
+    _target_: egomimic.rldb.zarr.zarr_dataset_multi.MultiDataset._from_resolver
+    resolver:
+      _target_: egomimic.rldb.zarr.zarr_dataset_multi.LocalEpisodeResolver
+      folder_path: ${paths.dataset_dir}
+      key_map:
+        _target_: egomimic.rldb.embodiment.piper.Piper.get_keymap
+        action_horizon: ${action_horizon}
+      transform_list:
+        _target_: egomimic.rldb.embodiment.piper.Piper.get_transform_list
+    mode: train
+    valid_ratio: 0.1
+
+valid_datasets:
+  piper_right_arm:
+    _target_: egomimic.rldb.zarr.zarr_dataset_multi.MultiDataset._from_resolver
+    resolver: ${data.train_datasets.piper_right_arm.resolver}
+    mode: valid
+    valid_ratio: ${data.train_datasets.piper_right_arm.valid_ratio}
+
+train_dataloader_params:
+  piper_right_arm:
+    batch_size: ${batch_size}
+    num_workers: ${num_workers}
+    pin_memory: true
+valid_dataloader_params:
+  piper_right_arm:
+    batch_size: ${batch_size}
+    num_workers: ${num_workers}
+    pin_memory: true

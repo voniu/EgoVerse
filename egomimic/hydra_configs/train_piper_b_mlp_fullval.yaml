@@ -1,0 +1,14 @@
+defaults:
+- train_piper_b_mlp
+- _self_
+name: piper_b_mlp_fullval
+trainer:
+  limit_train_batches: 1000
+  limit_val_batches: 1
+evaluator:
+  _target_: egomimic.eval.eval_piper_full.FullPiperEval
+  dataset_dir: ${paths.dataset_dir}
+  batch_size: 32
+callbacks:
+  checkpoint:
+    monitor: Valid/robot_chunk_position_mm

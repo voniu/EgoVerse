@@ -1,0 +1,11 @@
+defaults:
+- piper_human_cotrain
+- _self_
+
+train_datasets:
+  piper_right_arm:
+    resolver:
+      key_map:
+        joint_head: true
+      transform_list:
+        joint_head: true

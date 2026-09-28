@@ -1,0 +1,9 @@
+defaults:
+- train_piper
+- override model: hpt_piper_mlp
+- _self_
+name: piper_a_mlp
+num_workers: 0
+callbacks:
+  final_checkpoint:
+    _target_: egomimic.pl_utils.save_final.SaveFinalCheckpoint

@@ -1,0 +1,37 @@
+defaults:
+  - piper
+  - _self_
+
+# Reuse A's robot split exactly. Each step draws one robot and one human batch;
+# max_size_cycle repeats the shorter loader. B's model config must support both.
+train_datasets:
+  human_left_arm:
+    _target_: egomimic.rldb.zarr.zarr_dataset_multi.MultiDataset._from_resolver
+    resolver:
+      _target_: egomimic.rldb.zarr.zarr_dataset_multi.LocalEpisodeResolver
+      folder_path: ${hydra:runtime.cwd}/.local_calibration/aria_gen2_aligned
+      key_map:
+        _target_: egomimic.rldb.embodiment.aria_gen2_left.AriaGen2Left.get_keymap
+        action_horizon: ${action_horizon}
+      transform_list:
+        _target_: egomimic.rldb.embodiment.aria_gen2_left.AriaGen2Left.get_transform_list
+    mode: train
+    valid_ratio: 0.1
+
+valid_datasets:
+  human_left_arm:
+    _target_: egomimic.rldb.zarr.zarr_dataset_multi.MultiDataset._from_resolver
+    resolver: ${data.train_datasets.human_left_arm.resolver}
+    mode: valid
+    valid_ratio: ${data.train_datasets.human_left_arm.valid_ratio}
+
+train_dataloader_params:
+  human_left_arm:
+    batch_size: ${batch_size}
+    num_workers: ${num_workers}
+    pin_memory: true
+valid_dataloader_params:
+  human_left_arm:
+    batch_size: ${batch_size}
+    num_workers: ${num_workers}
+    pin_memory: true

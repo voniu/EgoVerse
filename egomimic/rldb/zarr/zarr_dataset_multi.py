@@ -1529,6 +1529,7 @@ class ZarrDataset(torch.utils.data.Dataset):
         Episode_path: Path,
         key_map: dict,
         transform_list: list | None = None,
+        strict: bool = False,
     ):
         """
         Args:
@@ -1537,6 +1538,7 @@ class ZarrDataset(torch.utils.data.Dataset):
             transform_list: list of Transform objects to apply to the data after loading, e.g. for action chunk transformations. Should be in order of application.
         """
         self.episode_path = Episode_path
+        self.strict = strict
         self.metadata = None
         self._image_keys = None  # Lazy-loaded set of JPEG-encoded keys
         self._json_keys = None  # Lazy-loaded set of JSON-encoded keys
@@ -1670,6 +1672,10 @@ class ZarrDataset(torch.utils.data.Dataset):
 
         def _next(reason: str, key: str = "") -> int:
             nonlocal attempts
+            if self.strict:
+                raise RuntimeError(
+                    f"{reason}: episode={self.episode_path}, frame={idx}, key={key}"
+                )
             next_idx, attempts = get_fallback_idx(
                 idx=idx,
                 candidates=range(self.total_frames),
@@ -1753,13 +1759,18 @@ class ZarrDataset(torch.utils.data.Dataset):
                     # Normalize a 3x3 K to the canonical 3x4 (zeros last column);
                     # some contributors store 3x3 (e.g. microagi).
                     K = np.concatenate([K, np.zeros((3, 1), dtype=np.float32)], axis=1)
-                if K.shape != (3, 4):  # unexpected -> sentinel (viz falls back to const)
+                if K.shape != (
+                    3,
+                    4,
+                ):  # unexpected -> sentinel (viz falls back to const)
                     K = np.full((3, 4), np.nan, dtype=np.float32)
             else:
                 K = np.full((3, 4), np.nan, dtype=np.float32)
             data["intrinsics"] = torch.from_numpy(np.ascontiguousarray(K))
             ep_name = Path(self.episode_path).name
-            data["episode_hash"] = ep_name[:-5] if ep_name.endswith(".zarr") else ep_name
+            data["episode_hash"] = (
+                ep_name[:-5] if ep_name.endswith(".zarr") else ep_name
+            )
             _ = origin  # preserved for symmetry with prior API
             return data
 

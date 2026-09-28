@@ -1,0 +1,12 @@
+defaults:
+  - train_piper
+  - override data: piper_human_cotrain
+  - override model: hpt_piper_human_flow
+  - _self_
+
+name: piper_b
+# One batch per domain per step; HPT averages the two domain losses equally.
+# Keep robot samples per step, step budget and optimizer equal to A.
+callbacks:
+  checkpoint:
+    monitor: Valid/piper_right_arm_loss

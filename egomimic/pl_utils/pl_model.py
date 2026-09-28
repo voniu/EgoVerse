@@ -224,7 +224,7 @@ class ModelWrapper(LightningModule):
             f"Rank {self.global_rank} on validation end, waiting for all ranks to synchronize",
             flush=True,
         )
-        torch.distributed.barrier()
+        self.trainer.strategy.barrier()
         print(
             f"Rank {self.global_rank} on validation end, all ranks synchronized",
             flush=True,
@@ -283,7 +283,7 @@ class ModelWrapper(LightningModule):
             f"Rank {self.global_rank} on fit start, waiting for all ranks to synchronize",
             flush=True,
         )
-        torch.distributed.barrier()
+        self.trainer.strategy.barrier()
         print(
             f"Rank {self.global_rank} on fit start, all ranks synchronized", flush=True
         )

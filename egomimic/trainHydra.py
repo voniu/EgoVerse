@@ -1,6 +1,7 @@
 import copy
 import os
 import signal
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
@@ -24,6 +25,7 @@ from egomimic.rldb.zarr.zarr_dataset_multi import MultiDataset
 from egomimic.utils.aws.aws_data_utils import load_env
 from egomimic.utils.instantiators import instantiate_callbacks, instantiate_loggers
 from egomimic.utils.logging_utils import log_hyperparameters
+from egomimic.utils.provenance import write_run_record
 from egomimic.utils.pylogger import RankedLogger
 from egomimic.utils.utils import extras, task_wrapper
 
@@ -33,7 +35,8 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 def _build_model_config_tree(cfg: DictConfig) -> DictConfig:
-    model_cfg = copy.deepcopy(cfg.model)
+    # Resolve references to the training config before detaching the model tree.
+    model_cfg = OmegaConf.create(OmegaConf.to_container(cfg.model, resolve=True))
     if (
         "robomimic_model" in model_cfg
         and isinstance(model_cfg.robomimic_model, DictConfig)
@@ -114,6 +117,12 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: A DictConfig configuration composed by Hydra.
     :return: A tuple with metrics and dict with all instantiated objects.
     """
+    output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
+    repo = Path(__file__).resolve().parents[1]
+    provenance = write_run_record(output_dir / "run_provenance.json", repo)
+    if provenance["source"]["dirty"]:
+        log.warning("Training source tree is dirty; see run_provenance.json")
+
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)

@@ -1,0 +1,12 @@
+{
+  "hand": "left",
+  "origin": "palm_center",
+  "mapping": "R_camera_tool = R_camera_native_left_wrist @ R_wrist_tool",
+  "R_wrist_tool": [
+    [0.028544915971173812, -0.01487516186506288, 0.9994818244128741],
+    [0.9927511921182601, 0.11720523355463999, -0.02660834033111409],
+    [-0.11674869729454251, 0.9929963055252979, 0.01811294821769216]
+  ],
+  "visual_review": "accepted_by_user",
+  "reference": "docs/calibration/aria_left_tcp_axes.md"
+}
