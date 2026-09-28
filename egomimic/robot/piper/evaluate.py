@@ -71,6 +71,9 @@ def main():
         raise AssertionError("Unreachable target accepted")
 
     class Recorder:
+        def MotionCtrl_2(self, *args):
+            self.motion = args
+
         def JointCtrl(self, *args):
             self.joints = args
 
@@ -80,8 +83,10 @@ def main():
     hardware = PiperHardware.__new__(PiperHardware)
     hardware.geometry = geometry
     hardware.controlling = True
+    hardware.speed_percent = 10
     hardware.piper = Recorder()
     hardware.send(np.deg2rad([10, 20, -30, 40, 50, -60]), 0.05)
+    assert hardware.piper.motion == (0x01, 0x01, 10, 0x00)
     assert hardware.piper.joints == (10000, 20000, -30000, 40000, 50000, -60000)
     assert abs(hardware.piper.gripper[0] - 50000) <= 1
     report["sdk_units_verified"] = True

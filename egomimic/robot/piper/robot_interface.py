@@ -108,6 +108,7 @@ class PiperHardware:
         self.piper = C_PiperInterface_V2(port)
         self.pipelines = []
         self.controlling = False
+        self.speed_percent = None
         try:
             self.piper.ConnectPort(piper_init=False)
             time.sleep(0.3)
@@ -154,13 +155,30 @@ class PiperHardware:
     def start_control(self, speed_percent):
         raw = self.read_state()
         self.controlling = True
+        self.speed_percent = speed_percent
+        # EnablePiper() can return True while status still reports the quick
+        # stop left by close(), so reset it explicitly before CAN control.
+        self.piper.EmergencyStop(0x02)
+        until = time.monotonic() + 5
+        while int(self.piper.GetArmStatus().arm_status.arm_status) != 0:
+            if time.monotonic() > until:
+                raise RuntimeError("Piper emergency-stop reset timed out")
+            time.sleep(0.02)
         # Preload the measured position before enabling, avoiding an old target.
         self.piper.JointCtrl(*np.rint(raw[:6]).astype(int).tolist())
-        self.piper.MotionCtrl_2(0x01, 0x01, speed_percent, 0x00)
         until = time.monotonic() + 5
         while not self.piper.EnablePiper():
             if time.monotonic() > until:
                 raise RuntimeError("Piper enable timed out")
+            time.sleep(0.02)
+        until = time.monotonic() + 5
+        while True:
+            self.piper.MotionCtrl_2(0x01, 0x01, speed_percent, 0x00)
+            status = self.piper.GetArmStatus().arm_status
+            if int(status.arm_status) == 0 and int(status.ctrl_mode) == 1:
+                break
+            if time.monotonic() > until:
+                raise RuntimeError(f"Piper did not enter CAN control mode: {status}")
             time.sleep(0.02)
         self.piper.GripperCtrl(int(raw[6]), 1000, 0x01, 0)
 
@@ -168,6 +186,9 @@ class PiperHardware:
         if not self.controlling:
             raise RuntimeError("Control has not been started")
         raw = np.rint(np.rad2deg(q) / self.geometry.joint_scale).astype(int)
+        # Piper drops back to standby unless MOVE-J control is refreshed with
+        # the streamed position commands.
+        self.piper.MotionCtrl_2(0x01, 0x01, self.speed_percent, 0x00)
         self.piper.JointCtrl(*raw.tolist())
         # Piper L nominal physical stroke: 100mm; opening is in meters, not binary.
         self.piper.GripperCtrl(

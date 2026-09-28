@@ -83,7 +83,7 @@ def main():
     parser.add_argument(
         "--query-every",
         type=int,
-        default=10,
+        default=1,
         help="Use this many actions before observing again (1..30)",
     )
     parser.add_argument("--duration", type=float, default=30)

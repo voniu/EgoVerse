@@ -26,7 +26,7 @@ python -m egomimic.robot.piper.rollout --duration 5
 
 ```bash
 python -m egomimic.robot.piper.rollout \
-  --execute --speed-percent 10 --duration 30 --query-every 10
+  --execute --speed-percent 10 --duration 30 --query-every 1
 ```
 
 切换到MLP B仅更换checkpoint：
@@ -34,17 +34,17 @@ python -m egomimic.robot.piper.rollout \
 ```bash
 python -m egomimic.robot.piper.rollout \
   --checkpoint .local_calibration/hpc/mlp/checkpoints/b/final.ckpt \
-  --execute --speed-percent 10 --duration 30 --query-every 10
+  --execute --speed-percent 10 --duration 30 --query-every 1
 ```
 
 参数说明：
 
 - `--speed-percent 10`：SDK关节运动速度百分比，不等于末端固定线速度。没有额外关节增量限速或轨迹平滑。
-- `--query-every 10`：每次观察后使用预测的前10步，按30Hz间隔发送，再重新观察。设为1则每次只执行第一步。推理、相机读取、日志与IK都有耗时，因此实际查询频率略低于理想3Hz；脚本不会为了追赶时间集中发送过期动作。
+- `--query-every 1`：每次观察后只执行预测的第一步，然后使用最新反馈和图像重新规划。该值也是默认值。增大该值会开环执行动作段，实机上可能遇到后续姿态不可达或累积误差；推理、相机读取、日志与IK都有耗时，因此实际频率低于30Hz。
 - `--port can_follower`，腕部序列号默认`427622273943`，主相机序列号从`calibration.yaml`读取。
-- `--duration`：包括推理与发送的运行时间。结束、Ctrl+C或异常时，执行模式会发送SDK快速停止`EmergencyStop(0x01)`，不会调用失能、归零或自动回家。若设备保持急停状态，现场按已有操作方式恢复；脚本不会自动清除已有急停。
+- `--duration`：包括推理与发送的运行时间。结束、Ctrl+C或异常时，执行模式会发送SDK快速停止`EmergencyStop(0x01)`，不会调用失能、归零或自动回家。下一次执行会先发送恢复指令，再重新使能并检查CAN控制状态。
 
-执行模式先预置当前关节位置再请求使能。基本有效性检查仅拒绝过期反馈、非有限输出，以及IK无法满足的目标（位置残差超过5mm或姿态残差超过3度）；IK在URDF关节范围内求解。没有桌面、障碍物或自碰撞模型，低速也不替代现场观察。
+执行模式先预置当前关节位置再请求使能，并随每条关节命令刷新MOVE-J控制模式；否则本机Piper约0.2秒后会退回STANDBY并忽略后续目标。基本有效性检查仅拒绝过期反馈、非有限输出，以及IK无法满足的目标（位置残差超过5mm或姿态残差超过3度）；IK在URDF关节范围内求解。没有桌面、障碍物或自碰撞模型，低速也不替代现场观察。
 
 ## 日志与离线检查
 
@@ -62,7 +62,9 @@ python -m egomimic.robot.piper.evaluate
 
 此检查覆盖部署推理与已有A/B评估的一致性、已知姿态的FK/IK往返、模型预测姿态的可达性，以及SDK发送单位。报告位于 `.local_calibration/deployment_check.json`。离线通过不代表已验证实机抓取成功或IK全程连续。
 
-当前离线结果：A/B各3帧的部署预测与已有评估在浮点容差内一致；20个已知关节姿态的FK/IK往返最大位置残差约0.0001mm，发送单位检查通过。所抽取6个动作段的前10步中，51/60个满足IK精度要求，9个未满足，均出现在近零位的第0帧动作段（A4个、B5个）。这不是全面可达性保证，也不说明目标全局无解；当前局部求解器在这些输入上未达标。执行时若出现此问题，日志会保留模型目标和报错，不会把该解发送给机器人。尚未进行实时硬件测试。
+当前离线结果：A/B各3帧的部署预测与已有评估在浮点容差内一致；20个已知关节姿态的FK/IK往返最大位置残差约0.0001mm，发送单位检查通过。所抽取6个动作段的前10步中，51/60个满足IK精度要求，9个未满足，均出现在近零位的第0帧动作段（A4个、B5个）。这不是全面可达性保证，也不说明目标全局无解；当前局部求解器在这些输入上未达标。执行时若出现此问题，日志会保留模型目标和报错，不会把该解发送给机器人。
+
+2026-09-29完成3秒实机闭环检查，日志为`.local_calibration/rollouts/20260929_014948`。逐帧重规划共发送23条命令，TCP净移动80.4mm，最大单次反馈关节变化2.41度，IK最大残差2.92mm/2.74度，无超限退出。该检查验证了SDK控制链和短时闭环运行，不等同于完整抓取成功率测试。
 
 部署附加依赖见 `requirements-deploy.txt`。本工程虚拟环境没有pip时使用：
 
