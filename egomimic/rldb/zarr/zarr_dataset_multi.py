@@ -749,6 +749,7 @@ class MultiDataset(torch.utils.data.Dataset):
 
         # ---- Stats fields (always present, may be empty) ----
         self.norm_mode = norm_mode
+        self.mode = mode
         self.embodiments: set[int] = set()
         self.key_types: dict[int, dict[str, str]] = {}
         self.zarr_keys: dict[int, dict[str, str]] = {}
@@ -885,6 +886,12 @@ class MultiDataset(torch.utils.data.Dataset):
                     self._warned_violations.add(warn_key)
                     logger.warning(prefix)
                 return prefix
+
+            # Validation must measure distribution shift rather than silently
+            # replace an out-of-range sample with another frame. It still uses
+            # training statistics for normalization and still rejects NaN/Inf.
+            if self.mode == "valid":
+                continue
 
             below = arr < q_low
             above = arr > q_high
