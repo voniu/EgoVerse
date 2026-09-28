@@ -22,10 +22,17 @@ def _git(repo: Path, *args: str) -> str | None:
 
 def source_record(repo: Path) -> dict:
     status = _git(repo, "status", "--porcelain=v1", "--untracked-files=normal")
+    commit = _git(repo, "rev-parse", "HEAD") or os.environ.get("EGOVERSE_GIT_COMMIT")
+    branch = _git(repo, "branch", "--show-current") or os.environ.get(
+        "EGOVERSE_GIT_BRANCH"
+    )
+    dirty = bool(status) if status is not None else None
+    if status is None and os.environ.get("EGOVERSE_SOURCE_DIRTY") == "0":
+        dirty = False
     return {
-        "commit": _git(repo, "rev-parse", "HEAD"),
-        "branch": _git(repo, "branch", "--show-current"),
-        "dirty": bool(status) if status is not None else None,
+        "commit": commit,
+        "branch": branch,
+        "dirty": dirty,
         "status": status.splitlines() if status else [],
     }
 
