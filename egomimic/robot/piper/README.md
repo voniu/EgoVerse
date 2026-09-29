@@ -90,12 +90,13 @@ python -m egomimic.robot.piper.rollout_joint \
 `.local_calibration/rollouts_joint/时间戳/`，其中保存每次观测、完整动作段、首个目标
 相对当前反馈的关节差和是否实际发送。
 
-执行模式启动后先以 20% 速度回到 `initial_pose.json` 保存的六关节和夹爪姿态，反馈
-连续三次进入 1 度/5mm 容差后，才切换到策略速度并开始计算 `--duration`。初始化结果
+默认使用现场人员手动设置的当前姿态，不执行自动回位。显式加入 `--initialize` 后，程序
+才会先以 20% 速度回到 `initial_pose.json` 保存的六关节和夹爪姿态；反馈连续三次进入
+1 度/5mm 容差后，切换到策略速度并开始计算 `--duration`。初始化结果
 逐帧写入 `initialization.jsonl`，成功摘要写入 `initialization.json`；异常或 Ctrl+C
 另存为带运行阶段和 traceback 的 `error.json`。可用 `--init-speed-percent`、`--init-timeout`、
-`--init-joint-tolerance-deg` 和 `--init-gripper-tolerance-mm` 调整；临时绕过使用
-`--skip-initialize`。
+`--init-joint-tolerance-deg` 和 `--init-gripper-tolerance-mm` 调整。旧参数
+`--skip-initialize` 仍兼容。
 
 保存姿态来自真实反馈；限位附近的反馈可能因零位偏差轻微落在 URDF 范围外。初始化命令
 会先裁剪到 URDF 可命令范围。本机成功首帧中的 J2=-2.387°、J3=+1.994° 因此按

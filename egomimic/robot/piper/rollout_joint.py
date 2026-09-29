@@ -203,7 +203,18 @@ def main():
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--speed-percent", type=int, default=30)
     parser.add_argument("--initial-pose", type=Path, default=INITIAL_POSE)
-    parser.add_argument("--skip-initialize", action="store_true")
+    parser.add_argument(
+        "--initialize",
+        action="store_true",
+        help="Move to initial-pose before rollout; disabled by default",
+    )
+    parser.add_argument(
+        "--skip-initialize",
+        action="store_false",
+        dest="initialize",
+        help=argparse.SUPPRESS,
+    )
+    parser.set_defaults(initialize=False)
     parser.add_argument("--init-speed-percent", type=int, default=20)
     parser.add_argument("--init-timeout", type=float, default=30.0)
     parser.add_argument("--init-joint-tolerance-deg", type=float, default=1.0)
@@ -295,10 +306,14 @@ def main():
         )
 
     geometry = Geometry(args.calibration)
-    initial_target = load_initial_pose(args.initial_pose)
-    initial_target[:6] = np.clip(
-        initial_target[:6], geometry.model_bounds[:, 0], geometry.model_bounds[:, 1]
-    )
+    initial_target = None
+    if args.initialize:
+        initial_target = load_initial_pose(args.initial_pose)
+        initial_target[:6] = np.clip(
+            initial_target[:6],
+            geometry.model_bounds[:, 0],
+            geometry.model_bounds[:, 1],
+        )
     policy = JointMLPPolicy(args.checkpoint)
     policy.predict(
         np.zeros(7, np.float32),
@@ -337,11 +352,11 @@ def main():
     stage = "hardware setup"
     try:
         if args.execute:
-            stage = "initialization"
+            stage = "initialization" if args.initialize else "control startup"
             robot.start_control(
-                args.speed_percent if args.skip_initialize else args.init_speed_percent
+                args.init_speed_percent if args.initialize else args.speed_percent
             )
-            if not args.skip_initialize:
+            if args.initialize:
                 print(
                     f"INITIALIZE | speed {args.init_speed_percent}% | target joints "
                     f"{np.rad2deg(initial_target[:6]).round(2)}deg | gripper "
@@ -402,15 +417,6 @@ def main():
                 chunk_displacement_deg = np.abs(
                     np.rad2deg(chunk[:, :6] - state[:6])
                 ).max()
-                if (
-                    args.execute
-                    and chunk_displacement_deg > args.max_chunk_displacement_deg
-                ):
-                    raise RuntimeError(
-                        "Predicted chunk is too far from current feedback: "
-                        f"{chunk_displacement_deg:.1f}deg > "
-                        f"{args.max_chunk_displacement_deg:.1f}deg"
-                    )
                 if args.save_every and counter % args.save_every == 0:
                     np.savez(
                         args.output / f"query_{counter:04d}.npz",
@@ -421,6 +427,15 @@ def main():
                         normalized_overrun=normalized_overrun,
                         front=front,
                         wrist=wrist,
+                    )
+                if (
+                    args.execute
+                    and chunk_displacement_deg > args.max_chunk_displacement_deg
+                ):
+                    raise RuntimeError(
+                        "Predicted chunk is too far from current feedback: "
+                        f"{chunk_displacement_deg:.1f}deg > "
+                        f"{args.max_chunk_displacement_deg:.1f}deg"
                     )
                 if args.execution_mode == "ensemble":
                     history.append((action_step, chunk))
