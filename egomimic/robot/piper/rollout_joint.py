@@ -3,6 +3,7 @@
 import argparse
 import json
 import time
+import traceback
 from pathlib import Path
 
 import numpy as np
@@ -131,6 +132,7 @@ def initialize_robot(
     joint_tolerance_deg,
     gripper_tolerance_mm,
     control_hz,
+    log=None,
 ):
     feedback_target = geometry.feedback_from_model(target[:6])
     started = time.monotonic()
@@ -140,6 +142,20 @@ def initialize_robot(
         state = geometry.joint_state(raw)
         joint_error_deg = np.abs(np.rad2deg(target[:6] - state[:6]))
         gripper_error_mm = abs(target[6] - state[6]) * 1000
+        if log is not None:
+            log.write(
+                json.dumps(
+                    {
+                        "elapsed_s": time.monotonic() - started,
+                        "state": state.tolist(),
+                        "target": target.tolist(),
+                        "joint_error_deg": joint_error_deg.tolist(),
+                        "gripper_error_mm": float(gripper_error_mm),
+                    }
+                )
+                + "\n"
+            )
+            log.flush()
         if (
             joint_error_deg.max() <= joint_tolerance_deg
             and gripper_error_mm <= gripper_tolerance_mm
@@ -306,8 +322,10 @@ def main():
     counter = 0
     action_step = 0
     history = []
+    stage = "hardware setup"
     try:
         if args.execute:
+            stage = "initialization"
             robot.start_control(
                 args.speed_percent if args.skip_initialize else args.init_speed_percent
             )
@@ -318,15 +336,17 @@ def main():
                     f"{initial_target[6] * 1000:.1f}mm",
                     flush=True,
                 )
-                initialization = initialize_robot(
-                    robot,
-                    geometry,
-                    initial_target,
-                    args.init_timeout,
-                    args.init_joint_tolerance_deg,
-                    args.init_gripper_tolerance_mm,
-                    args.control_hz,
-                )
+                with (args.output / "initialization.jsonl").open("w") as init_log:
+                    initialization = initialize_robot(
+                        robot,
+                        geometry,
+                        initial_target,
+                        args.init_timeout,
+                        args.init_joint_tolerance_deg,
+                        args.init_gripper_tolerance_mm,
+                        args.control_hz,
+                        init_log,
+                    )
                 (args.output / "initialization.json").write_text(
                     json.dumps(initialization, indent=2)
                 )
@@ -351,6 +371,7 @@ def main():
                 f">={args.min_start_gripper_mm:.1f}mm)"
             )
         started = time.monotonic()
+        stage = "policy rollout"
         print(
             f"{'EXECUTE' if args.execute else 'READ ONLY'} | checkpoint step "
             f"{policy.step} | logs: {args.output}",
@@ -482,7 +503,26 @@ def main():
                 )
                 counter += 1
     except KeyboardInterrupt:
+        (args.output / "error.json").write_text(
+            json.dumps(
+                {"stage": stage, "type": "KeyboardInterrupt", "message": ""},
+                indent=2,
+            )
+        )
         print("Interrupted; stopping arm commands.", flush=True)
+    except BaseException as error:
+        (args.output / "error.json").write_text(
+            json.dumps(
+                {
+                    "stage": stage,
+                    "type": type(error).__name__,
+                    "message": str(error),
+                    "traceback": traceback.format_exc(),
+                },
+                indent=2,
+            )
+        )
+        raise
     finally:
         robot.close()
 

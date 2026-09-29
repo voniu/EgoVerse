@@ -92,7 +92,8 @@ python -m egomimic.robot.piper.rollout_joint \
 
 执行模式启动后先以 20% 速度回到 `initial_pose.json` 保存的六关节和夹爪姿态，反馈
 连续三次进入 1 度/5mm 容差后，才切换到策略速度并开始计算 `--duration`。初始化结果
-写入当次目录的 `initialization.json`。可用 `--init-speed-percent`、`--init-timeout`、
+逐帧写入 `initialization.jsonl`，成功摘要写入 `initialization.json`；异常或 Ctrl+C
+另存为带运行阶段和 traceback 的 `error.json`。可用 `--init-speed-percent`、`--init-timeout`、
 `--init-joint-tolerance-deg` 和 `--init-gripper-tolerance-mm` 调整；临时绕过使用
 `--skip-initialize`。
 
