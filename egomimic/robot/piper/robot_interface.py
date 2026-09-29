@@ -143,8 +143,13 @@ class PiperHardware:
                     pipeline, config = rs.pipeline(), rs.config()
                     config.enable_device(serial)
                     config.enable_stream(rs.stream.color, 640, 480, rs.format.rgb8, 30)
-                    pipeline.start(config)
-                    self.pipelines.append(pipeline)
+                    try:
+                        pipeline.start(config)
+                    except RuntimeError as error:
+                        raise RuntimeError(
+                            f"Failed to start RealSense {serial}: {error}"
+                        ) from error
+                    self.pipelines.append((serial, pipeline))
                 # Let automatic exposure settle without controlling the arm.
                 until = time.monotonic() + 2
                 while time.monotonic() < until:
@@ -168,12 +173,16 @@ class PiperHardware:
         )
 
     def images(self):
-        return [
-            np.asanyarray(
-                p.wait_for_frames(timeout_ms=1000).get_color_frame().get_data()
-            ).copy()
-            for p in self.pipelines
-        ]
+        images = []
+        for serial, pipeline in self.pipelines:
+            try:
+                frame = pipeline.wait_for_frames(timeout_ms=1000).get_color_frame()
+                images.append(np.asanyarray(frame.get_data()).copy())
+            except RuntimeError as error:
+                raise RuntimeError(
+                    f"RealSense {serial} frame failed: {error}"
+                ) from error
+        return images
 
     def start_control(self, speed_percent):
         raw = self.read_state()
@@ -282,7 +291,7 @@ class PiperHardware:
                 self.piper.EmergencyStop(0x01)
                 self.controlling = False
         finally:
-            for pipeline in self.pipelines:
+            for _, pipeline in self.pipelines:
                 pipeline.stop()
             self.pipelines.clear()
             self.piper.DisconnectPort()
