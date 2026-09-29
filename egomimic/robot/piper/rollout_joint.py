@@ -72,6 +72,20 @@ class JointMLPPolicy:
         return result
 
 
+def clip_near_joint_limits(joints, bounds, tolerance_deg):
+    """Clip small boundary overshoots and reject targets far outside the URDF."""
+    joints = np.asarray(joints)
+    lower_error = np.maximum(bounds[:, 0] - joints, 0)
+    upper_error = np.maximum(joints - bounds[:, 1], 0)
+    violation_deg = np.rad2deg(np.maximum(lower_error, upper_error))
+    worst = int(np.argmax(violation_deg))
+    if violation_deg[worst] > tolerance_deg:
+        raise RuntimeError(
+            f"J{worst + 1} target exceeds URDF limit by {violation_deg[worst]:.2f}deg"
+        )
+    return np.clip(joints, bounds[:, 0], bounds[:, 1]), violation_deg
+
+
 def main():
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument(
@@ -84,6 +98,12 @@ def main():
     parser.add_argument("--wrist-serial", default="427622273943")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--speed-percent", type=int, default=10)
+    parser.add_argument(
+        "--joint-limit-tolerance-deg",
+        type=float,
+        default=3.0,
+        help="Clip URDF-limit overshoots up to this size; reject larger ones",
+    )
     parser.add_argument(
         "--query-every",
         type=int,
@@ -103,6 +123,7 @@ def main():
         not 1 <= args.speed_percent <= 100
         or not 1 <= args.query_every <= 30
         or args.duration <= 0
+        or args.joint_limit_tolerance_deg < 0
     ):
         parser.error(
             "speed-percent:1..100, query-every:1..30, duration must be positive"
@@ -161,18 +182,20 @@ def main():
                     front=front,
                     wrist=wrist,
                 )
+                first_command = None
+                first_violation = None
                 for horizon, action in enumerate(chunk[: args.query_every]):
                     if time.monotonic() - started >= args.duration:
                         break
                     tick = time.monotonic()
-                    joints = action[:6]
-                    if (
-                        (joints < geometry.model_bounds[:, 0])
-                        | (joints > geometry.model_bounds[:, 1])
-                    ).any():
-                        raise RuntimeError(
-                            "Joint-head target exceeds URDF joint limits"
-                        )
+                    joints, violation_deg = clip_near_joint_limits(
+                        action[:6],
+                        geometry.model_bounds,
+                        args.joint_limit_tolerance_deg,
+                    )
+                    if horizon == 0:
+                        first_command = joints
+                        first_violation = violation_deg
                     feedback_target = geometry.feedback_from_model(joints)
                     if args.execute:
                         robot.read_state()
@@ -186,6 +209,8 @@ def main():
                                 inference_ms=inference_ms,
                                 observed=state.tolist(),
                                 target=action.tolist(),
+                                commanded_joints_rad=joints.tolist(),
+                                joint_limit_violation_deg=violation_deg.tolist(),
                                 delta_joint_deg=np.rad2deg(joints - state[:6]).tolist(),
                                 sent=args.execute,
                             )
@@ -194,11 +219,15 @@ def main():
                     )
                     log.flush()
                     time.sleep(max(0, 1 / 30 - (time.monotonic() - tick)))
-                delta = np.rad2deg(chunk[0, :6] - state[:6])
+                if first_command is None:
+                    break
+                delta = np.rad2deg(first_command - state[:6])
                 print(
                     f"query {counter}: inference {inference_ms:.0f}ms, first joints "
-                    f"{np.rad2deg(chunk[0, :6]).round(1)}, max delta "
-                    f"{np.abs(delta).max():.1f}deg, gripper {chunk[0, 6] * 1000:.1f}mm",
+                    f"{np.rad2deg(first_command).round(1)}, max delta "
+                    f"{np.abs(delta).max():.1f}deg, limit clip "
+                    f"{first_violation.max():.2f}deg, gripper "
+                    f"{chunk[0, 6] * 1000:.1f}mm",
                     flush=True,
                 )
                 counter += 1

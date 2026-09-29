@@ -93,6 +93,11 @@ python -m egomimic.robot.piper.rollout_joint \
 全部有限且位于 URDF 关节范围内。当前姿态到首个预测目标的最大关节差约 13.4 度，
 主要来自 J5；执行时 SDK 速度百分比限制运动速度，但模型输出仍是绝对位置目标。
 
+URDF 中 J2/J3 的名义边界为 0 度，但本机 follower 标定范围分别延伸到
+J2=-2.1 度、J3=+2.0 度，真实反馈和训练标签会轻微跨过 URDF 边界。Joint rollout
+默认把不超过 3 度的预测越界裁剪回 URDF 边界，超过 3 度仍停止，并在
+`commands.jsonl` 同时记录原预测、实际命令和各关节越界量。
+
 部署附加依赖见 `requirements-deploy.txt`。本工程虚拟环境没有pip时使用：
 
 ```bash
