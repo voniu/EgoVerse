@@ -206,6 +206,12 @@ class PiperHardware:
             int(np.clip(opening, 0, 0.1) / self.geometry.grip_scale), 1000, 0x01, 0
         )
 
+    def set_speed_percent(self, speed_percent):
+        if not self.controlling:
+            raise RuntimeError("Control has not been started")
+        self.speed_percent = speed_percent
+        self.piper.MotionCtrl_2(0x01, 0x01, speed_percent, 0x00)
+
     def close(self):
         try:
             if self.controlling:

@@ -18,6 +18,8 @@ from egomimic.scripts.piper_process.evaluate_full import ACTION, DOMAIN, load_mo
 from egomimic.scripts.piper_process.evaluate_joint_heads import JOINT_ACTION
 from egomimic.utils.provenance import run_record, sha256
 
+INITIAL_POSE = Path(__file__).with_name("initial_pose.json")
+
 
 class JointMLPPolicy:
     def __init__(self, checkpoint):
@@ -111,6 +113,58 @@ def temporal_ensemble(history, step, decay):
     return np.average(predictions, axis=0, weights=weights), len(predictions)
 
 
+def load_initial_pose(path):
+    spec = json.loads(Path(path).read_text())
+    state = np.r_[spec["model_joints_rad"], spec["gripper_m"]].astype(float)
+    if state.shape != (7,) or not np.isfinite(state).all():
+        raise ValueError("Initial pose must contain six finite joints and a gripper")
+    if not 0 <= state[6] <= 0.1:
+        raise ValueError("Initial gripper opening must be between 0 and 0.1m")
+    return state
+
+
+def initialize_robot(
+    robot,
+    geometry,
+    target,
+    timeout_s,
+    joint_tolerance_deg,
+    gripper_tolerance_mm,
+    control_hz,
+):
+    feedback_target = geometry.feedback_from_model(target[:6])
+    started = time.monotonic()
+    stable_samples = 0
+    while True:
+        raw = robot.read_state()
+        state = geometry.joint_state(raw)
+        joint_error_deg = np.abs(np.rad2deg(target[:6] - state[:6]))
+        gripper_error_mm = abs(target[6] - state[6]) * 1000
+        if (
+            joint_error_deg.max() <= joint_tolerance_deg
+            and gripper_error_mm <= gripper_tolerance_mm
+        ):
+            stable_samples += 1
+            if stable_samples >= 3:
+                return {
+                    "duration_s": time.monotonic() - started,
+                    "target": target.tolist(),
+                    "final_state": state.tolist(),
+                    "joint_error_deg": joint_error_deg.tolist(),
+                    "gripper_error_mm": float(gripper_error_mm),
+                }
+        else:
+            stable_samples = 0
+        if time.monotonic() - started > timeout_s:
+            raise RuntimeError(
+                "Initialization timed out: max joint error "
+                f"{joint_error_deg.max():.2f}deg, gripper error "
+                f"{gripper_error_mm:.1f}mm"
+            )
+        robot.send(feedback_target, target[6])
+        time.sleep(1 / control_hz)
+
+
 def main():
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument(
@@ -123,6 +177,12 @@ def main():
     parser.add_argument("--wrist-serial", default="427622273943")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--speed-percent", type=int, default=30)
+    parser.add_argument("--initial-pose", type=Path, default=INITIAL_POSE)
+    parser.add_argument("--skip-initialize", action="store_true")
+    parser.add_argument("--init-speed-percent", type=int, default=20)
+    parser.add_argument("--init-timeout", type=float, default=30.0)
+    parser.add_argument("--init-joint-tolerance-deg", type=float, default=1.0)
+    parser.add_argument("--init-gripper-tolerance-mm", type=float, default=5.0)
     parser.add_argument(
         "--joint-limit-tolerance-deg",
         type=float,
@@ -178,8 +238,12 @@ def main():
     args = parser.parse_args()
     if (
         not 1 <= args.speed_percent <= 100
+        or not 1 <= args.init_speed_percent <= 100
         or not 1 <= args.query_every <= 30
         or args.duration <= 0
+        or args.init_timeout <= 0
+        or args.init_joint_tolerance_deg <= 0
+        or args.init_gripper_tolerance_mm <= 0
         or args.joint_limit_tolerance_deg < 0
         or args.ensemble_decay < 0
         or args.min_start_gripper_mm < 0
@@ -187,11 +251,12 @@ def main():
         or args.save_every < 0
     ):
         parser.error(
-            "speed-percent:1..100, chunk-size:1..30, duration/control-hz must be "
-            "positive, save-every must be nonnegative"
+            "speed percentages:1..100, chunk-size:1..30, durations/tolerances/"
+            "control-hz must be positive, save-every must be nonnegative"
         )
 
     geometry = Geometry(args.calibration)
+    initial_target = load_initial_pose(args.initial_pose)
     policy = JointMLPPolicy(args.checkpoint)
     policy.predict(
         np.zeros(7, np.float32),
@@ -224,11 +289,40 @@ def main():
     )
 
     robot = PiperHardware(geometry, args.port, args.wrist_serial)
-    started = time.monotonic()
     counter = 0
     action_step = 0
     history = []
     try:
+        if args.execute:
+            robot.start_control(
+                args.speed_percent if args.skip_initialize else args.init_speed_percent
+            )
+            if not args.skip_initialize:
+                print(
+                    f"INITIALIZE | speed {args.init_speed_percent}% | target joints "
+                    f"{np.rad2deg(initial_target[:6]).round(2)}deg | gripper "
+                    f"{initial_target[6] * 1000:.1f}mm",
+                    flush=True,
+                )
+                initialization = initialize_robot(
+                    robot,
+                    geometry,
+                    initial_target,
+                    args.init_timeout,
+                    args.init_joint_tolerance_deg,
+                    args.init_gripper_tolerance_mm,
+                    args.control_hz,
+                )
+                (args.output / "initialization.json").write_text(
+                    json.dumps(initialization, indent=2)
+                )
+                robot.set_speed_percent(args.speed_percent)
+                print(
+                    f"INITIALIZED | {initialization['duration_s']:.1f}s | max error "
+                    f"{max(initialization['joint_error_deg']):.2f}deg | gripper "
+                    f"error {initialization['gripper_error_mm']:.1f}mm",
+                    flush=True,
+                )
         initial_raw = robot.read_state()
         initial_state = geometry.joint_state(initial_raw)
         initial_gripper_mm = initial_state[6] * 1000
@@ -242,8 +336,7 @@ def main():
                 f"robot demonstrations start open (required "
                 f">={args.min_start_gripper_mm:.1f}mm)"
             )
-        if args.execute:
-            robot.start_control(args.speed_percent)
+        started = time.monotonic()
         print(
             f"{'EXECUTE' if args.execute else 'READ ONLY'} | checkpoint step "
             f"{policy.step} | logs: {args.output}",

@@ -82,12 +82,19 @@ python -m egomimic.robot.piper.rollout_joint --duration 5
 
 ```bash
 python -m egomimic.robot.piper.rollout_joint \
-  --execute --speed-percent 30 --duration 3
+  --execute --speed-percent 30 --duration 3 \
+  --execution-mode chunk --chunk-size 30
 ```
 
 确认三秒动作方向后，可将 `--duration` 改为 `30`。日志写入
 `.local_calibration/rollouts_joint/时间戳/`，其中保存每次观测、完整动作段、首个目标
 相对当前反馈的关节差和是否实际发送。
+
+执行模式启动后先以 20% 速度回到 `initial_pose.json` 保存的六关节和夹爪姿态，反馈
+连续三次进入 1 度/5mm 容差后，才切换到策略速度并开始计算 `--duration`。初始化结果
+写入当次目录的 `initialization.json`。可用 `--init-speed-percent`、`--init-timeout`、
+`--init-joint-tolerance-deg` 和 `--init-gripper-tolerance-mm` 调整；临时绕过使用
+`--skip-initialize`。
 
 部署参数均可从命令行调整：
 
