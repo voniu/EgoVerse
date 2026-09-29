@@ -122,7 +122,7 @@ def main():
     parser.add_argument("--port", default="can_follower")
     parser.add_argument("--wrist-serial", default="427622273943")
     parser.add_argument("--execute", action="store_true")
-    parser.add_argument("--speed-percent", type=int, default=10)
+    parser.add_argument("--speed-percent", type=int, default=30)
     parser.add_argument(
         "--joint-limit-tolerance-deg",
         type=float,

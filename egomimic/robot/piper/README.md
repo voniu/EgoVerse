@@ -82,7 +82,7 @@ python -m egomimic.robot.piper.rollout_joint --duration 5
 
 ```bash
 python -m egomimic.robot.piper.rollout_joint \
-  --execute --speed-percent 10 --duration 3
+  --execute --speed-percent 30 --duration 3
 ```
 
 确认三秒动作方向后，可将 `--duration` 改为 `30`。日志写入
