@@ -44,9 +44,20 @@ class Geometry:
                 for name in k["joint_names"]
             ]
         )
+        self.model_bounds = bounds
         self.bounds = np.sort(
             (bounds - self.offsets[:, None]) / self.signs[:, None], axis=1
         )
+
+    def joint_state(self, raw):
+        """Seven-channel model state: URDF joints in radians and gripper in meters."""
+        feedback = np.deg2rad(np.asarray(raw[:6]) * self.joint_scale)
+        joints = feedback * self.signs + self.offsets
+        return np.r_[joints, raw[6] * self.grip_scale].astype(np.float32)
+
+    def feedback_from_model(self, joints):
+        """Convert URDF/model joint coordinates to SDK feedback coordinates."""
+        return (np.asarray(joints) - self.offsets) / self.signs
 
     def tcp_base(self, q):
         return (

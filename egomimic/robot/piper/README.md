@@ -66,6 +66,33 @@ python -m egomimic.robot.piper.evaluate
 
 2026-09-29完成3秒实机闭环检查，日志为`.local_calibration/rollouts/20260929_014948`。逐帧重规划共发送23条命令，TCP净移动80.4mm，最大单次反馈关节变化2.41度，IK最大残差2.92mm/2.74度，无超限退出。该检查验证了SDK控制链和短时闭环运行，不等同于完整抓取成功率测试。
 
+## Joint Head MLP A
+
+Joint Head 使用相同的两路 RGB，状态改为当前硬件关节位置和夹爪开度
+`[q1..q6(rad), gripper(m)]`，直接输出 `30×7` 绝对关节目标。部署不经过
+Cartesian pose 或 IK：模型关节坐标根据 calibration 中的符号和零位转换回 SDK
+反馈坐标后发送。默认 checkpoint 是 A 组验证集最佳模型（step 5300）：
+
+```bash
+python -m egomimic.robot.piper.rollout_joint --duration 5
+```
+
+上述命令只读取相机和 follower 并记录预测。退出遥操、确认场景已摆到示范起始状态并
+准备好急停后，由现场人员执行低速三秒检查：
+
+```bash
+python -m egomimic.robot.piper.rollout_joint \
+  --execute --speed-percent 10 --duration 3 --query-every 1
+```
+
+确认三秒动作方向后，可将 `--duration` 改为 `30`。日志写入
+`.local_calibration/rollouts_joint/时间戳/`，其中保存每次观测、完整动作段、首个目标
+相对当前反馈的关节差和是否实际发送。
+
+2026-09-29 的只读实机检查使用当前姿态完成 52 次推理，平均推理时间约 16ms，输出
+全部有限且位于 URDF 关节范围内。当前姿态到首个预测目标的最大关节差约 13.4 度，
+主要来自 J5；执行时 SDK 速度百分比限制运动速度，但模型输出仍是绝对位置目标。
+
 部署附加依赖见 `requirements-deploy.txt`。本工程虚拟环境没有pip时使用：
 
 ```bash
