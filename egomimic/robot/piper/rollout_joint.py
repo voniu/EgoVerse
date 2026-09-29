@@ -59,17 +59,26 @@ class JointMLPPolicy:
             self.model.auxiliary_ac_keys[DOMAIN],
         )
         features, _ = self.policy.forward_features(DOMAIN, data)
-        prediction = self.head(features)
+        raw_prediction = self.head(features).float()
+        prediction = raw_prediction.clamp(-1, 1)
         result = (
-            self.model.norm_stats.unnormalize({JOINT_ACTION: prediction.float()}, 7)[
+            self.model.norm_stats.unnormalize({JOINT_ACTION: prediction}, 7)[
                 JOINT_ACTION
             ][0]
             .cpu()
             .numpy()
         )
-        if not np.isfinite(result).all():
+        raw_result = (
+            self.model.norm_stats.unnormalize({JOINT_ACTION: raw_prediction}, 7)[
+                JOINT_ACTION
+            ][0]
+            .cpu()
+            .numpy()
+        )
+        normalized_overrun = (raw_prediction[0].abs() - 1).clamp_min(0).cpu().numpy()
+        if not np.isfinite([result, raw_result, normalized_overrun]).all():
             raise RuntimeError("Nonfinite model output")
-        return result
+        return result, raw_result, normalized_overrun
 
 
 def clip_near_joint_limits(joints, bounds, tolerance_deg):
@@ -172,13 +181,17 @@ def main():
                 raw = robot.read_state()
                 state = geometry.joint_state(raw)
                 t0 = time.monotonic()
-                chunk = policy.predict(state, front, wrist)
+                chunk, raw_chunk, normalized_overrun = policy.predict(
+                    state, front, wrist
+                )
                 inference_ms = (time.monotonic() - t0) * 1000
                 np.savez_compressed(
                     args.output / f"query_{counter:04d}.npz",
                     raw_state=raw,
                     state=state,
                     prediction=chunk,
+                    raw_prediction=raw_chunk,
+                    normalized_overrun=normalized_overrun,
                     front=front,
                     wrist=wrist,
                 )
@@ -209,6 +222,8 @@ def main():
                                 inference_ms=inference_ms,
                                 observed=state.tolist(),
                                 target=action.tolist(),
+                                raw_target=raw_chunk[horizon].tolist(),
+                                normalized_overrun=normalized_overrun[horizon].tolist(),
                                 commanded_joints_rad=joints.tolist(),
                                 joint_limit_violation_deg=violation_deg.tolist(),
                                 delta_joint_deg=np.rad2deg(joints - state[:6]).tolist(),
