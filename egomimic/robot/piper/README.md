@@ -82,7 +82,7 @@ python -m egomimic.robot.piper.rollout_joint --duration 5
 
 ```bash
 python -m egomimic.robot.piper.rollout_joint \
-  --execute --speed-percent 10 --duration 3 --query-every 1
+  --execute --speed-percent 10 --duration 3 --query-every 10
 ```
 
 确认三秒动作方向后，可将 `--duration` 改为 `30`。日志写入
@@ -102,6 +102,11 @@ MLP 动作头的最后一层是无界线性层，而训练的 quantile-normalize
 `[-1,1]`。部署时先把归一化预测裁剪到该区间，限制在各 horizon 的训练动作
 1%–99% 分位范围，再应用 URDF 限位。日志和 NPZ 保留未约束预测、归一化越界量、
 训练分布裁剪结果和最终关节命令。
+
+Joint Head 训练目标是 30 步 action chunk。默认每次执行前 10 步（约 0.33 秒）再根据
+新图像重规划。只执行 horizon 0 的 `--query-every 1` 可能反复丢弃 chunk 中后续的
+推进动作：实机曾持续执行被裁剪到 J2/J3=0 度的首点，而同一 chunk 从 horizon 7
+开始已经离开边界。该现象表现为机械臂停在限位附近，不代表完整 chunk 也指向限位。
 
 部署附加依赖见 `requirements-deploy.txt`。本工程虚拟环境没有pip时使用：
 

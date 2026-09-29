@@ -116,8 +116,8 @@ def main():
     parser.add_argument(
         "--query-every",
         type=int,
-        default=1,
-        help="Use this many actions before observing again (1..30)",
+        default=10,
+        help="Execute this action-chunk prefix before observing again (1..30)",
     )
     parser.add_argument("--duration", type=float, default=30)
     parser.add_argument(
@@ -159,6 +159,7 @@ def main():
                 "source": run_record(ROOT),
                 "action_hz": 30,
                 "action_space": "absolute URDF joints rad + gripper m",
+                "replan_hz_nominal": 30 / args.query_every,
             },
             indent=2,
         )
