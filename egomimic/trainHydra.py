@@ -206,6 +206,20 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         scheduler_interval=cfg.model.get("scheduler_interval", "step"),
     )
 
+    init_ckpt_path = cfg.get("init_ckpt_path")
+    if init_ckpt_path and cfg.get("ckpt_path"):
+        raise ValueError("init_ckpt_path and ckpt_path are mutually exclusive")
+    if init_ckpt_path:
+        log.info(f"Initializing model weights from {init_ckpt_path}")
+        checkpoint = torch.load(
+            init_ckpt_path,
+            map_location="cpu",
+            weights_only=False,
+            mmap=True,
+        )
+        model.load_state_dict(checkpoint["state_dict"], strict=True)
+        del checkpoint
+
     _log_dataset_frame_counts(datamodule.train_datasets, datamodule.valid_datasets)
 
     log.info("Instantiating callbacks...")
