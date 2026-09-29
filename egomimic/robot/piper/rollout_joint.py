@@ -136,6 +136,7 @@ def initialize_robot(
 ):
     feedback_target = geometry.feedback_from_model(target[:6])
     started = time.monotonic()
+    next_report = started
     stable_samples = 0
     while True:
         raw = robot.read_state()
@@ -171,7 +172,15 @@ def initialize_robot(
                 }
         else:
             stable_samples = 0
-        if time.monotonic() - started > timeout_s:
+        now = time.monotonic()
+        if now >= next_report:
+            print(
+                f"INITIALIZING | {now - started:.1f}s | error deg "
+                f"{joint_error_deg.round(2)} | gripper {gripper_error_mm:.1f}mm",
+                flush=True,
+            )
+            next_report = now + 1
+        if now - started > timeout_s:
             raise RuntimeError(
                 "Initialization timed out: max joint error "
                 f"{joint_error_deg.max():.2f}deg, gripper error "
@@ -287,6 +296,9 @@ def main():
 
     geometry = Geometry(args.calibration)
     initial_target = load_initial_pose(args.initial_pose)
+    initial_target[:6] = np.clip(
+        initial_target[:6], geometry.model_bounds[:, 0], geometry.model_bounds[:, 1]
+    )
     policy = JointMLPPolicy(args.checkpoint)
     policy.predict(
         np.zeros(7, np.float32),

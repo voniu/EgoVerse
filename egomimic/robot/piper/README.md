@@ -97,6 +97,10 @@ python -m egomimic.robot.piper.rollout_joint \
 `--init-joint-tolerance-deg` 和 `--init-gripper-tolerance-mm` 调整；临时绕过使用
 `--skip-initialize`。
 
+保存姿态来自真实反馈；限位附近的反馈可能因零位偏差轻微落在 URDF 范围外。初始化命令
+会先裁剪到 URDF 可命令范围。本机成功首帧中的 J2=-2.387°、J3=+1.994° 因此按
+J2=0°、J3=0°执行，初始化期间每秒打印一次剩余误差。
+
 默认还会拒绝相对当前反馈跨度超过 55 度的预测 chunk，并在命令领先真实关节超过
 30 度时停止。两项阈值分别由 `--max-chunk-displacement-deg` 和
 `--max-tracking-error-deg` 配置。初始化姿态取自已成功运行的
