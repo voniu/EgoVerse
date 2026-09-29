@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import zarr
+from scipy.spatial.transform import Rotation
 
 from egomimic.rldb.zarr.zarr_dataset_multi import MultiDataset, split_dataset_names
 
@@ -13,7 +14,7 @@ from egomimic.rldb.zarr.zarr_dataset_multi import MultiDataset, split_dataset_na
 def read_training_arrays(dataset_dir: Path, horizon: int):
     paths = sorted(dataset_dir.glob("*.zarr"))
     train, _ = split_dataset_names([path.stem for path in paths], 0.1, seed=42)
-    states, actions = [], []
+    states, joint_actions, cartesian_actions = [], [], []
     for path in paths:
         if path.stem not in train:
             continue
@@ -25,13 +26,23 @@ def read_training_arrays(dataset_dir: Path, horizon: int):
         cmd = np.column_stack(
             (group["right.cmd_joints"][:frames], group["right.cmd_gripper"][:frames])
         ).astype(np.float32)
+        pose = np.asarray(group["right.cmd_ee_pose_camframe"][:frames])
+        quaternion_xyzw = pose[:, [4, 5, 6, 3]]
+        ypr = Rotation.from_quat(quaternion_xyzw).as_euler("ZYX")
+        cartesian = np.column_stack((pose[:, :3], ypr, cmd[:, 6])).astype(np.float32)
         indices = np.minimum(
             np.arange(frames)[:, None] + np.arange(horizon)[None, :], frames - 1
         )
         states.append(obs)
-        actions.append(cmd[indices])
+        joint_actions.append(cmd[indices])
+        cartesian_actions.append(cartesian[indices])
         print(path.name, frames, flush=True)
-    return np.concatenate(states), np.concatenate(actions), len(train)
+    return (
+        np.concatenate(states),
+        np.concatenate(joint_actions),
+        np.concatenate(cartesian_actions),
+        len(train),
+    )
 
 
 def serializable_stats(values):
@@ -62,11 +73,12 @@ def main():
     parser.add_argument("--output-b", type=Path, required=True)
     args = parser.parse_args()
 
-    states, actions, episodes = read_training_arrays(args.dataset, horizon=30)
-    base_robot = json.loads(args.base_a.read_text())["stats"]["7"]
+    states, actions, cartesian_actions, episodes = read_training_arrays(
+        args.dataset, horizon=30
+    )
     robot_stats = {
         "observations.state.joints": serializable_stats(states),
-        "actions_cartesian": base_robot["actions_cartesian"],
+        "actions_cartesian": serializable_stats(cartesian_actions),
         "actions_joints": serializable_stats(actions),
     }
     for output in (args.output_a, args.output_b):
