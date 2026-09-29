@@ -1,4 +1,4 @@
-"""Deploy the Piper joint-action MLP; --execute enables SDK commands."""
+"""Deploy a Piper MLP or flow-matching joint-action policy."""
 
 import argparse
 import json
@@ -22,14 +22,14 @@ from egomimic.utils.provenance import run_record, sha256
 INITIAL_POSE = Path(__file__).with_name("initial_pose.json")
 
 
-class JointMLPPolicy:
-    def __init__(self, checkpoint):
+class JointPolicy:
+    def __init__(self, checkpoint, flow_seed=0):
         self.wrapper, self.step = load_model(checkpoint)
         self.model = self.wrapper.model
         self.policy = self.model.nets["policy"]
         self.head = self.policy.heads[f"{DOMAIN}_{JOINT_ACTION}"]
-        if self.policy.diffusion or hasattr(self.head, "sample_action"):
-            raise ValueError("This deployment expects the deterministic joint MLP head")
+        self.is_flow = hasattr(self.head, "sample_action")
+        self.flow_seed = flow_seed
         self.horizon = self.head.action_horizon
         state_stats = self.model.norm_stats.norm_stats[7]["observations.state.joints"]
         if np.asarray(state_stats["mean"]).size != 7:
@@ -62,8 +62,21 @@ class JointMLPPolicy:
             self.model.auxiliary_ac_keys[DOMAIN],
         )
         features, _ = self.policy.forward_features(DOMAIN, data)
-        raw_prediction = self.head(features).float()
-        prediction = raw_prediction.clamp(-1, 1)
+        if self.is_flow:
+            generator = torch.Generator(device=features.device).manual_seed(
+                self.flow_seed
+            )
+            raw_prediction = self.head.sample_action(
+                features, DOMAIN, generator=generator
+            ).float()
+            prediction = raw_prediction
+            normalized_overrun = torch.zeros_like(raw_prediction[0]).cpu().numpy()
+        else:
+            raw_prediction = self.head(features).float()
+            prediction = raw_prediction.clamp(-1, 1)
+            normalized_overrun = (
+                (raw_prediction[0].abs() - 1).clamp_min(0).cpu().numpy()
+            )
         result = (
             self.model.norm_stats.unnormalize({JOINT_ACTION: prediction}, 7)[
                 JOINT_ACTION
@@ -78,7 +91,6 @@ class JointMLPPolicy:
             .cpu()
             .numpy()
         )
-        normalized_overrun = (raw_prediction[0].abs() - 1).clamp_min(0).cpu().numpy()
         if not np.isfinite([result, raw_result, normalized_overrun]).all():
             raise RuntimeError("Nonfinite model output")
         return result, raw_result, normalized_overrun
@@ -214,6 +226,12 @@ def main():
     parser.add_argument("--calibration", type=Path, default=CALIBRATION)
     parser.add_argument("--port", default="can_follower")
     parser.add_argument("--wrist-serial", default="427622273943")
+    parser.add_argument(
+        "--flow-seed",
+        type=int,
+        default=0,
+        help="Fixed FM sampling seed; ignored by deterministic MLP checkpoints",
+    )
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--speed-percent", type=int, default=30)
     parser.add_argument("--initial-pose", type=Path, default=INITIAL_POSE)
@@ -337,7 +355,7 @@ def main():
             geometry.model_bounds[:, 0],
             geometry.model_bounds[:, 1],
         )
-    policy = JointMLPPolicy(args.checkpoint)
+    policy = JointPolicy(args.checkpoint, args.flow_seed)
     policy.predict(
         np.zeros(7, np.float32),
         np.zeros((480, 640, 3), np.uint8),
@@ -353,6 +371,7 @@ def main():
                     for key, value in vars(args).items()
                 },
                 "checkpoint_step": policy.step,
+                "head": "flow" if policy.is_flow else "mlp",
                 "checkpoint_sha256": sha256(checkpoint),
                 "source": run_record(ROOT),
                 "model_action_hz": 30,
@@ -441,7 +460,8 @@ def main():
         stage = "policy rollout"
         print(
             f"{'EXECUTE' if args.execute else 'READ ONLY'} | checkpoint step "
-            f"{policy.step} | logs: {args.output}",
+            f"{policy.step} | head {'FM' if policy.is_flow else 'MLP'} | "
+            f"logs: {args.output}",
             flush=True,
         )
         with (args.output / "commands.jsonl").open("w") as log:

@@ -66,16 +66,28 @@ python -m egomimic.robot.piper.evaluate
 
 2026-09-29完成3秒实机闭环检查，日志为`.local_calibration/rollouts/20260929_014948`。逐帧重规划共发送23条命令，TCP净移动80.4mm，最大单次反馈关节变化2.41度，IK最大残差2.92mm/2.74度，无超限退出。该检查验证了SDK控制链和短时闭环运行，不等同于完整抓取成功率测试。
 
-## Joint Head MLP A
+## Joint Head A/B × MLP/FM
 
 Joint Head 使用相同的两路 RGB，状态改为当前硬件关节位置和夹爪开度
 `[q1..q6(rad), gripper(m)]`，直接输出 `30×7` 绝对关节目标。部署不经过
 Cartesian pose 或 IK：模型关节坐标根据 calibration 中的符号和零位转换回 SDK
-反馈坐标后发送。默认 checkpoint 是 A 组验证集最佳模型（step 5300）：
+反馈坐标后发送。默认 checkpoint 是 A+MLP 验证集最佳模型（step 5300）：
 
 ```bash
 python -m egomimic.robot.piper.rollout_joint --duration 5
 ```
+
+同一入口支持四组 Joint Head checkpoint：
+
+|变体|checkpoint|step|
+|---|---|---:|
+|A+MLP|`.local_calibration/hpc/joint/checkpoints/a/best.ckpt`|5300|
+|B+MLP|`.local_calibration/hpc/joint/checkpoints/b/best.ckpt`|4100|
+|A+FM|`.local_calibration/hpc/joint/checkpoints/a/flow_best.ckpt`|9600|
+|B+FM|`.local_calibration/hpc/joint/checkpoints/b/flow_best.ckpt`|9800|
+
+用 `--checkpoint` 切换。FM以固定 `--flow-seed`（默认0）生成初始噪声，使重复实验可复现；
+MLP为确定性输出。FM沿用训练时的z-score归一化，不应用MLP专用的 `[-1,1]` quantile裁剪。
 
 上述命令只读取相机和 follower 并记录预测。退出遥操、确认场景已摆到示范起始状态并
 准备好急停后，由现场人员执行低速三秒检查：
@@ -119,8 +131,8 @@ J2/J3 分别位于 13.899°/-9.608°，避开二者的 0°边界。
 - `--save-every`：每隔多少次推理保存一份图像和完整预测，默认 10；设为 0
   可关闭。保存采用无压缩 NPZ，避免 RGB 压缩阻塞控制循环。
 
-进入执行模式时，程序要求 CAN/MOVE-J 控制状态与六个电机使能连续稳定三次，并保持
-当前关节目标 0.2 秒后才启动策略。每条命令日志都保存 `ctrl_mode`、`arm_status`、
+进入执行模式时，程序要求 CAN/MOVE-J 控制状态与六个电机使能连续稳定0.5秒后才启动策略。
+每条命令日志都保存 `ctrl_mode`、`arm_status`、
 `mode_feed`、`motion_status` 和六电机使能状态；控制器离开有效状态会立即停止。
 
 不加载模型的控制链往返检查：
