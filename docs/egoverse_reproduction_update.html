@@ -6,431 +6,231 @@
   <title>EgoVerse Reproduction — Interim Update</title>
   <style>
     :root {
-      --ink: #152236;
-      --muted: #5f6b7a;
-      --paper: #f4f1ea;
-      --panel: #fffdf9;
-      --line: #d9d6ce;
-      --robot: #008c95;
-      --robot-soft: #dceff0;
-      --human: #e9862c;
-      --human-soft: #fae9da;
-      --shared: #6555b5;
-      --shared-soft: #e8e4f7;
-      --good: #21835b;
-      --good-soft: #dff1e8;
-      --fm: #60758b;
-      --mlp: #e47b20;
-      --shadow: 0 18px 50px rgba(21, 34, 54, .12);
+      --ink:#132238; --muted:#607084; --paper:#f6f3ed; --panel:#fffdfa;
+      --line:#d9d6cf; --robot:#008b92; --robot-soft:#def0f1;
+      --human:#e47c24; --human-soft:#fae8d8; --shared:#6555b5;
+      --shared-soft:#e9e5f7; --green:#27815e; --fm:#506982; --fm2:#93a6b7;
+      --mlp:#dc741e; --mlp2:#f3b27c;
     }
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:#222a37;color:var(--ink)}
+    body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+    .deck{min-height:100vh;display:grid;place-items:center;padding:24px}
+    .slide{
+      display:none;position:relative;overflow:hidden;background:var(--paper);
+      width:min(96vw,1600px,calc((100vh - 48px)*16/9));aspect-ratio:16/9;
+      padding:2.8% 3.6% 2.5%;box-shadow:0 18px 50px rgba(10,20,35,.18)
+    }
+    .slide.active{display:flex;flex-direction:column}
+    .slide:before{content:"";position:absolute;inset:0 0 auto;height:8px;background:linear-gradient(90deg,var(--robot) 0 34%,var(--shared) 34% 68%,var(--human) 68%)}
+    h1,h2,h3,p{margin:0} h1,h2{letter-spacing:-.035em}
+    h1{font-size:clamp(31px,2.8vw,52px);line-height:1.02}
+    h2{font-size:clamp(29px,2.55vw,47px);line-height:1.04}
+    h3{font-size:clamp(13px,1vw,19px)}
+    .eyebrow{color:var(--shared);font-size:clamp(10px,.76vw,14px);font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.45%}
+    .subtitle{color:var(--muted);font-size:clamp(12px,.92vw,17px);margin-top:.45%}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.93em}
+    .small{font-size:clamp(8px,.58vw,11px);line-height:1.3;color:var(--muted)}
+    .slide-no{position:absolute;right:2.2%;bottom:1.7%;font-size:clamp(9px,.63vw,12px);color:#8a929c}
 
-    * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background: #202734; color: var(--ink); }
-    body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .pipeline{flex:1;min-height:0;display:grid;grid-template-columns:1.18fr 28px .9fr 28px 1.06fr 28px 1.1fr 28px .94fr;gap:.35%;align-items:stretch;margin-top:1.5%}
+    .arrow{display:grid;place-items:center;color:var(--shared);font-size:clamp(20px,1.8vw,34px)}
+    .stage{min-width:0;min-height:0;display:flex;flex-direction:column;gap:2%}
+    .stage-title{font-size:clamp(10px,.68vw,13px);font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:center}
+    .box{min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4%;overflow:hidden}
+    .box.robot{border-left:6px solid var(--robot)} .box.human{border-left:6px solid var(--human)}
+    .box.shared{border-left:6px solid var(--shared)} .box.output{border-left:6px solid var(--green)}
+    .box h3{margin-bottom:2%}.robot h3{color:var(--robot)}.human h3{color:var(--human)}.shared h3{color:var(--shared)}.output h3{color:var(--green)}
+    .box p{font-size:clamp(8px,.59vw,11px);line-height:1.27;color:var(--muted)}
+    .box p+p{margin-top:2%}.box strong{color:var(--ink)}
+    .grow{flex:1}.split{display:grid;grid-template-rows:1fr 1fr;gap:2%;flex:1;min-height:0}
+    .token-row{display:flex;gap:3px;margin:5% 0 3%}.token-row i{height:7px;flex:1;border-radius:20px;background:var(--shared);opacity:.72}.token-row i:nth-child(-n+3){background:var(--robot)}
+    .head-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4%;margin-top:5%}
+    .tab{border-radius:8px;background:#eef1f4;padding:5%;font-size:clamp(7px,.52vw,10px);line-height:1.25;color:var(--muted)}
+    .tab.mlp{background:#fff0e3}.tab b{display:block;color:var(--ink)}
+    .losses{display:grid;grid-template-columns:1.2fr 1.4fr 1fr 1.22fr;gap:1.1%;margin-top:1.25%}
+    .loss-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:2.7% 3.5%;min-width:0}
+    .loss-card h3{font-size:clamp(10px,.73vw,14px);margin-bottom:2%}.loss-card p{font-size:clamp(8px,.56vw,11px);line-height:1.28;color:var(--muted)}
+    .equation{display:block;color:var(--ink);font-family:Georgia,"Times New Roman",serif;font-size:clamp(10px,.78vw,15px);margin-top:2%;white-space:nowrap}
 
-    .deck { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-    .slide {
-      display: none;
-      width: min(96vw, 1600px, calc((100vh - 48px) * 16 / 9));
-      aspect-ratio: 16 / 9;
-      position: relative;
-      overflow: hidden;
-      background: var(--paper);
-      box-shadow: var(--shadow);
-      padding: 2.8% 3.5% 2.5%;
-    }
-    .slide.active { display: flex; flex-direction: column; }
-    .slide::before {
-      content: "";
-      position: absolute;
-      inset: 0 0 auto 0;
-      height: 9px;
-      background: linear-gradient(90deg, var(--robot) 0 34%, var(--shared) 34% 68%, var(--human) 68%);
-    }
-
-    h1, h2, h3, p { margin: 0; }
-    h1, h2 { letter-spacing: -.035em; font-weight: 700; }
-    h1 { font-size: clamp(31px, 2.8vw, 54px); line-height: 1.02; }
-    h2 { font-size: clamp(29px, 2.55vw, 48px); line-height: 1.04; }
-    h3 { font-size: clamp(14px, 1.05vw, 20px); font-weight: 700; }
-    .eyebrow {
-      color: var(--shared);
-      font-size: clamp(11px, .9vw, 16px);
-      font-weight: 800;
-      letter-spacing: .12em;
-      text-transform: uppercase;
-      margin-bottom: .55%;
-    }
-    .subtitle { margin-top: .5%; color: var(--muted); font-size: clamp(13px, .95vw, 18px); }
-    .slide-no { position: absolute; right: 2.3%; bottom: 2.1%; color: #8b929d; font-size: clamp(11px, .8vw, 15px); }
-    .footnote { color: var(--muted); font-size: clamp(9px, .67vw, 13px); line-height: 1.3; }
-
-    /* Slide 1 */
-    .arch-layout {
-      flex: 1;
-      display: grid;
-      grid-template-columns: 1.05fr 42px 1.02fr 42px 1.05fr;
-      align-items: stretch;
-      gap: .85%;
-      margin-top: 1.5%;
-      min-height: 0;
-    }
-    .column { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 2%; }
-    .flow-arrow { display: grid; place-items: center; color: var(--shared); font-size: clamp(24px, 2.4vw, 43px); font-weight: 300; }
-    .node {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 15px;
-      padding: 3% 4%;
-      min-width: 0;
-      overflow: hidden;
-    }
-    .node.robot { border-left: 7px solid var(--robot); }
-    .node.human { border-left: 7px solid var(--human); }
-    .node.shared { border-left: 7px solid var(--shared); }
-    .node.good { border-left: 7px solid var(--good); }
-    .node h3 { margin-bottom: 1.5%; }
-    .node.robot h3 { color: var(--robot); }
-    .node.human h3 { color: var(--human); }
-    .node.shared h3 { color: var(--shared); }
-    .node.good h3 { color: var(--good); }
-    .spec { display: grid; grid-template-columns: 31% 69%; row-gap: .18em; font-size: clamp(9px, .64vw, 12px); line-height: 1.2; }
-    .spec dt { color: var(--muted); font-weight: 650; }
-    .spec dd { margin: 0; font-variant-numeric: tabular-nums; }
-    .tensor { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .94em; }
-    .input-stack { flex: 1; }
-    .dataset-row { display: grid; grid-template-columns: 1fr 1fr; gap: 2%; }
-    .dataset-chip {
-      border-radius: 12px;
-      padding: 3% 4%;
-      background: var(--robot-soft);
-      color: #125f64;
-      font-size: clamp(9px, .61vw, 12px);
-      line-height: 1.18;
-    }
-    .dataset-chip.h { background: var(--human-soft); color: #8d4c17; }
-    .dataset-chip b { display: block; font-size: 1.13em; margin-bottom: 2%; }
-    .shared-core { flex: 1; display: flex; flex-direction: column; justify-content: space-between; }
-    .token-strip { display: flex; gap: 4px; margin: 3% 0 2%; }
-    .token-strip i { display: block; flex: 1; height: 9px; border-radius: 99px; background: var(--shared); opacity: .7; }
-    .token-strip i:nth-child(-n+3) { background: var(--robot); }
-    .head-grid { flex: 1; min-height: 0; display: grid; grid-template-rows: 1fr 1fr; gap: 2%; }
-    .head-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 2%; margin-top: 2%; }
-    .choice {
-      padding: 3%; border-radius: 10px; background: #eef1f4;
-      font-size: clamp(8px, .59vw, 11px); line-height: 1.16;
-    }
-    .choice.mlp { background: #fff0e2; }
-    .choice b { display: block; margin-bottom: 2%; }
-    .matrix {
-      margin-top: 2%;
-      display: grid;
-      grid-template-columns: 44px repeat(2, 1fr);
-      gap: 3px;
-      align-items: center;
-      font-size: clamp(8px, .57vw, 11px);
-      text-align: center;
-    }
-    .matrix .cell { padding: 3px; border-radius: 6px; background: #edf0f3; }
-    .matrix .active-a { background: var(--robot-soft); color: #086d73; font-weight: 750; }
-    .matrix .active-b { background: var(--shared-soft); color: #51439c; font-weight: 750; }
-    .arch-footer { margin-top: .8%; display: flex; justify-content: space-between; align-items: baseline; gap: 2%; }
-    .arch-footer strong { color: var(--ink); }
-
-    /* Slide 2 */
-    .results-layout {
-      flex: 1;
-      display: grid;
-      grid-template-columns: 1.72fr .78fr;
-      gap: 3.2%;
-      margin-top: 1.5%;
-      min-height: 0;
-    }
-    .chart-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-    .legend { display: flex; gap: 18px; align-items: center; margin: .5% 0 1.3%; color: var(--muted); font-size: clamp(10px, .72vw, 14px); }
-    .legend span { display: inline-flex; align-items: center; gap: 6px; }
-    .swatch { width: 18px; height: 8px; border-radius: 2px; display: inline-block; }
-    .swatch.fm-a { background: #4f6680; } .swatch.fm-b { background: #8fa2b3; }
-    .swatch.mlp-a { background: #db721c; } .swatch.mlp-b { background: #f4b177; }
-    #metricsChart { width: 100%; flex: 1; min-height: 0; }
-    .insights { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 2%; }
-    .finding {
-      padding: 4.5%;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 15px;
-    }
-    .finding.primary { background: var(--good-soft); border-color: #b9dccb; }
-    .finding h3 { margin-bottom: 2%; }
-    .finding p { color: var(--muted); font-size: clamp(9px, .68vw, 13px); line-height: 1.3; }
-    .finding strong { color: var(--ink); }
-    .big-result { color: var(--good); font-size: clamp(23px, 1.9vw, 36px); font-weight: 800; letter-spacing: -.04em; margin: 1% 0 1.5%; }
-    .mini-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 3%; }
-    .mini-metrics div { background: #f0eee8; border-radius: 9px; padding: 5%; }
-    .mini-metrics b { display: block; font-size: clamp(15px, 1.2vw, 22px); }
-    .mini-metrics span { color: var(--muted); font-size: clamp(8px, .62vw, 12px); }
-    .status-line {
-      margin-top: auto;
-      display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 9px;
-      align-items: start;
-      color: var(--muted);
-      font-size: clamp(9px, .69vw, 13px);
-      line-height: 1.35;
-    }
-    .pulse { width: 9px; height: 9px; margin-top: 3px; border-radius: 50%; background: var(--shared); box-shadow: 0 0 0 4px var(--shared-soft); }
-
-    .nav {
-      position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
-      display: flex; align-items: center; gap: 8px; z-index: 4;
-      background: rgba(18, 25, 36, .88); color: white; padding: 7px 10px; border-radius: 99px;
-      font-size: 12px;
-    }
-    .nav button { border: 0; background: transparent; color: white; cursor: pointer; font: inherit; padding: 3px 7px; }
-    .nav button:disabled { opacity: .35; cursor: default; }
-    @media print {
-      html, body { background: white; }
-      .deck { display: block; padding: 0; }
-      .slide { display: flex !important; width: 100vw; height: 56.25vw; box-shadow: none; page-break-after: always; }
-      .nav { display: none; }
-    }
-    @media (max-aspect-ratio: 4/3) {
-      .deck { padding: 8px; }
-      .slide { width: 100%; }
-    }
+    .config-grid{display:grid;grid-template-columns:1.15fr 1fr 1fr 1.08fr;gap:1%;margin-top:1.35%}
+    .config{background:var(--panel);border-top:5px solid var(--shared);border-radius:10px;padding:3.5% 4%;min-width:0}
+    .config:nth-child(1){border-color:var(--robot)}.config:nth-child(2){border-color:var(--human)}
+    .config h3{font-size:clamp(10px,.72vw,14px);margin-bottom:2%}.config p{font-size:clamp(8px,.58vw,11px);line-height:1.32;color:var(--muted)}
+    .results{flex:1;min-height:0;display:grid;grid-template-columns:1fr 255px;gap:2%;margin-top:1.35%}
+    .chart-wrap{min-width:0;min-height:0;display:flex;flex-direction:column}
+    .chart-head{display:flex;align-items:baseline;justify-content:space-between;gap:2%;margin-bottom:.4%}
+    .chart-head h3{font-size:clamp(12px,.9vw,17px)}
+    .legend{display:flex;gap:12px;font-size:clamp(8px,.57vw,11px);color:var(--muted)}
+    .legend span{display:flex;align-items:center;gap:4px}.sw{width:15px;height:7px;border-radius:2px}.fma{background:#506982}.fmb{background:#93a6b7}.mlpa{background:#dc741e}.mlpb{background:#f3b27c}
+    #chart{width:100%;flex:1;min-height:0}
+    .metric-table{min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6%;display:flex;flex-direction:column}
+    .metric-table h3{margin-bottom:4%}
+    table{width:100%;border-collapse:collapse;font-size:clamp(8px,.56vw,11px);font-variant-numeric:tabular-nums}
+    th,td{padding:5px 3px;border-bottom:1px solid var(--line);text-align:right}th:first-child,td:first-child{text-align:left}th{color:var(--muted);font-weight:700}
+    .takeaway{margin-top:auto;padding:5%;border-radius:9px;background:var(--robot-soft);font-size:clamp(8px,.58vw,11px);line-height:1.32;color:#225f63}.takeaway b{color:#075e64}
+    .note{margin-top:.55%;font-size:clamp(7px,.5vw,10px);line-height:1.25;color:var(--muted)}
+    .nav{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);display:flex;align-items:center;gap:7px;background:rgba(16,24,36,.88);color:white;padding:6px 10px;border-radius:99px;font-size:12px;z-index:5}
+    .nav button{border:0;background:transparent;color:white;padding:2px 7px;cursor:pointer}.nav button:disabled{opacity:.35}
+    @media print{html,body{background:white}.deck{display:block;padding:0}.slide{display:flex!important;width:100vw;height:56.25vw;box-shadow:none;page-break-after:always}.nav{display:none}}
   </style>
 </head>
 <body>
-  <main class="deck" aria-label="EgoVerse reproduction interim presentation">
-    <section class="slide active" data-slide="1">
-      <div class="eyebrow">EgoVerse reproduction · interim group update</div>
-      <h1>From cross-embodiment pose learning<br>to direct Piper joint control</h1>
-      <p class="subtitle">One shared visual-policy trunk, two data regimes, and two action-generation heads.</p>
+<main class="deck">
+  <section class="slide active" data-slide="1">
+    <div class="eyebrow">EgoVerse reproduction · current policy</div>
+    <h1>Model Architecture｜双域、共享 HPT、双动作头</h1>
+    <p class="subtitle">A/B × MLP / Flow Matching · action horizon = 30</p>
 
-      <div class="arch-layout">
-        <div class="column input-stack">
-          <article class="node robot">
+    <div class="pipeline">
+      <div class="stage">
+        <div class="stage-title">1 · Input</div>
+        <div class="split">
+          <article class="box robot">
             <h3>Piper domain</h3>
-            <dl class="spec">
-              <dt>RGB</dt><dd>front + wrist <span class="tensor">[B,3,224,224] ×2</span></dd>
-              <dt>State</dt><dd><span class="tensor">[q₁…q₆, gripper] → [B,7]</span></dd>
-              <dt>Vision</dt><dd>ResNet18 → <span class="tensor">[B,49,256]</span> / view</dd>
-              <dt>Stems</dt><dd>cross-attn → <span class="tensor">3 × [B,16,256]</span></dd>
-              <dt>Targets</dt><dd>TCP pose + direct joints, each <span class="tensor">[B,30,7]</span></dd>
-            </dl>
+            <p><strong>Front RGB + Wrist RGB</strong><br><span class="mono">2 × [B,3,224,224]</span></p>
+            <p><strong>Hardware state</strong><br><span class="mono">[q₁…q₆, gripper] = [B,7]</span></p>
           </article>
-          <article class="node human">
-            <h3>Aria / human domain · B only</h3>
-            <dl class="spec">
-              <dt>RGB</dt><dd>egocentric <span class="tensor">[B,3,224,224]</span></dd>
-              <dt>State</dt><dd>left-hand pose <span class="tensor">[B,6]</span></dd>
-              <dt>Stems</dt><dd><span class="tensor">2 × [B,16,256]</span></dd>
-              <dt>Target</dt><dd>camera-frame hand pose <span class="tensor">[B,30,6]</span></dd>
-            </dl>
-          </article>
-          <div class="dataset-row">
-            <div class="dataset-chip"><b>70 Piper demos</b>63 train / 22,406 frames<br>7 valid / 2,381 frames</div>
-            <div class="dataset-chip h"><b>50 Aria demos</b>45 train / 7,546 frames<br>5 valid / 837 frames</div>
-          </div>
-        </div>
-
-        <div class="flow-arrow" aria-hidden="true">→</div>
-
-        <div class="column">
-          <article class="node shared shared-core">
-            <div>
-              <h3>Shared HPT representation</h3>
-              <dl class="spec">
-                <dt>Width</dt><dd><span class="tensor">256</span></dd>
-                <dt>Trunk</dt><dd>16 transformer blocks · 8 heads</dd>
-                <dt>Horizon</dt><dd>1 observation → 30 action tokens</dd>
-                <dt>Piper</dt><dd><span class="tensor">[B,78,256] → [B,30,256]</span></dd>
-                <dt>Human</dt><dd><span class="tensor">[B,62,256] → [B,30,256]</span></dd>
-                <dt>Identity</dt><dd>learned domain embedding</dd>
-              </dl>
-            </div>
-            <div class="token-strip" aria-hidden="true">
-              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-            </div>
-            <p class="footnote">B shares the trunk across robot and human batches; modality stems and output heads remain domain-aware.</p>
-          </article>
-          <div class="matrix" aria-label="Experiment matrix">
-            <div></div><b>MLP</b><b>Flow</b>
-            <b>A</b><div class="cell active-a">robot only</div><div class="cell active-a">robot only</div>
-            <b>B</b><div class="cell active-b">+ Aria</div><div class="cell active-b">+ Aria</div>
-          </div>
-        </div>
-
-        <div class="flow-arrow" aria-hidden="true">→</div>
-
-        <div class="column head-grid">
-          <article class="node shared">
-            <h3>Shared geometric pose head</h3>
-            <p class="footnote">Supervises a common geometric representation; retained for both domains and offline analysis.</p>
-            <div class="head-choice">
-              <div class="choice mlp"><b>Chunk MLP</b>deterministic MSE<br><span class="tensor">[B,30,D]</span></div>
-              <div class="choice"><b>Flow Matching</b>6-block CrossTransformer<br>128D · 4 heads · 50 steps</div>
-            </div>
-          </article>
-          <article class="node good">
-            <h3>Piper joint head · deployed</h3>
-            <dl class="spec">
-              <dt>Output</dt><dd><span class="tensor">[B,30,7]</span></dd>
-              <dt>Meaning</dt><dd>6 absolute joint targets + gripper opening</dd>
-              <dt>Control</dt><dd>direct SDK joint commands</dd>
-              <dt>Benefit</dt><dd>removes pose → IK branch failures</dd>
-            </dl>
-            <div class="head-choice">
-              <div class="choice mlp"><b>MLP head</b>256D hidden<br>full chunk at once</div>
-              <div class="choice"><b>FM head</b>same 30×7 target<br>iterative generation</div>
-            </div>
+          <article class="box human">
+            <h3>Aria domain · B only</h3>
+            <p><strong>Egocentric RGB</strong><br><span class="mono">[B,3,224,224]</span></p>
+            <p><strong>Left-hand EE pose</strong><br><span class="mono">[xyz, yaw/pitch/roll] = [B,6]</span></p>
           </article>
         </div>
       </div>
+      <div class="arrow">→</div>
 
-      <div class="arch-footer footnote">
-        <span><strong>A</strong> = Piper demonstrations only. <strong>B</strong> = Piper + aligned left-hand Aria demonstrations.</span>
-        <span>Training budget: 10k steps · batch 8/domain · BF16 · seed 42</span>
+      <div class="stage">
+        <div class="stage-title">2 · Encoder</div>
+        <article class="box shared grow">
+          <h3>Domain-aware stems</h3>
+          <p><strong>ResNet18 / image</strong><br><span class="mono">[B,49,256]</span></p>
+          <p><strong>State MLP</strong><br><span class="mono">[B,1,256]</span></p>
+          <p><strong>Cross Attention</strong><br>each modality → <span class="mono">[B,16,256]</span></p>
+          <p>共享主视角 encoder；腕部与 proprio stem 为 Piper 专用。</p>
+        </article>
       </div>
-      <span class="slide-no">1 / 2</span>
-    </section>
+      <div class="arrow">→</div>
 
-    <section class="slide" data-slide="2">
-      <div class="eyebrow">Evidence so far</div>
-      <h2>Offline MLP gains transferred into<br>a smooth A+MLP robot rollout</h2>
-      <p class="subtitle">Full fixed Piper validation split: 7 episodes, 2,381 frames. Lower is better.</p>
+      <div class="stage">
+        <div class="stage-title">3 · HPT</div>
+        <article class="box shared grow">
+          <h3>Shared policy trunk</h3>
+          <p><strong>16 Transformer blocks</strong><br>width 256 · 8 heads</p>
+          <p>Piper tokens:<br><span class="mono">30 + 3×16 = [B,78,256]</span></p>
+          <p>Human tokens:<br><span class="mono">30 + 2×16 = [B,62,256]</span></p>
+          <div class="token-row"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <p>取 30 个 action tokens：<br><span class="mono">h = [B,30,256]</span></p>
+          <p>B 中两域共享 trunk，以 domain embedding 区分 embodiment。</p>
+        </article>
+      </div>
+      <div class="arrow">→</div>
 
-      <div class="results-layout">
-        <div class="chart-panel">
-          <div class="legend" aria-label="Chart legend">
-            <span><i class="swatch fm-a"></i>FM A</span>
-            <span><i class="swatch fm-b"></i>FM B</span>
-            <span><i class="swatch mlp-a"></i>MLP A</span>
-            <span><i class="swatch mlp-b"></i>MLP B</span>
-          </div>
-          <svg id="metricsChart" role="img" aria-label="Offline position error and predicted action displacement for FM and MLP in A and B settings"></svg>
-          <p class="footnote">Offline plot uses the completed Cartesian pose-head benchmark: FM selected checkpoints at steps 9.1k/9.8k; MLP final checkpoints at 10k. It is directional evidence, not a controlled head-only causal claim.</p>
+      <div class="stage">
+        <div class="stage-title">4 · Action Heads</div>
+        <div class="split">
+          <article class="box shared">
+            <h3>Cartesian pose head</h3>
+            <p>Piper <span class="mono">D=7</span><br>Human <span class="mono">D=6</span></p>
+            <div class="head-tabs"><div class="tab mlp"><b>MLP</b>deterministic chunk</div><div class="tab"><b>FM</b>6-block CrossTransformer<br>128D · 4 heads</div></div>
+          </article>
+          <article class="box robot">
+            <h3>Piper joint head</h3>
+            <p>Piper only · <span class="mono">D=7</span><br>同一 HPT feature，独立监督。</p>
+            <div class="head-tabs"><div class="tab mlp"><b>MLP</b>hidden 256</div><div class="tab"><b>FM</b>50 inference steps</div></div>
+          </article>
         </div>
-
-        <aside class="insights">
-          <article class="finding primary">
-            <h3>Robot observation</h3>
-            <div class="big-result">Smooth grasp</div>
-            <p><strong>A+MLP with the direct joint head</strong> produced a smooth pick-and-place trajectory and successful grasp behavior in repeated on-robot trials. A formal success rate is still pending.</p>
-          </article>
-          <article class="finding">
-            <h3>What the offline metrics say</h3>
-            <p>MLP reduced the 30-step TCP position error and internal chunk displacement by roughly half to four-fifths versus FM. Adding Aria data did not improve this in-domain Piper split.</p>
-            <div class="mini-metrics">
-              <div><b>11.1°</b><span>MLP A chunk rotation</span></div>
-              <div><b>5.2 mm</b><span>MLP A gripper MAE</span></div>
-              <div><b>18.4°</b><span>FM A chunk rotation</span></div>
-              <div><b>15.4 mm</b><span>FM A gripper MAE</span></div>
-            </div>
-          </article>
-          <div class="status-line">
-            <i class="pulse" aria-hidden="true"></i>
-            <span><strong>Current follow-up:</strong> A+MLP and A+FM are being retrained with median + Savitzky–Golay smoothing on command labels; B retraining waits for robot evidence.</span>
-          </div>
-        </aside>
       </div>
-      <span class="slide-no">2 / 2</span>
-    </section>
-  </main>
+      <div class="arrow">→</div>
 
-  <nav class="nav" aria-label="Slide navigation">
-    <button id="prev" type="button" aria-label="Previous slide">←</button>
-    <span id="counter">1 / 2</span>
-    <button id="next" type="button" aria-label="Next slide">→</button>
-  </nav>
+      <div class="stage">
+        <div class="stage-title">5 · Output</div>
+        <div class="split">
+          <article class="box output">
+            <h3>Geometry supervision</h3>
+            <p>Robot:<br><span class="mono">actions_cartesian [B,30,7]</span></p>
+            <p>Human:<br><span class="mono">actions_cartesian [B,30,6]</span></p>
+            <p><span class="mono">xyz + yaw/pitch/roll (+ gripper)</span></p>
+          </article>
+          <article class="box output">
+            <h3>Robot deployment</h3>
+            <p><span class="mono">actions_joints [B,30,7]</span></p>
+            <p>6 absolute joint targets + continuous gripper opening.</p>
+            <p><strong>Direct joint control · no IK</strong></p>
+          </article>
+        </div>
+      </div>
+    </div>
 
-  <script>
-    const slides = [...document.querySelectorAll('.slide')];
-    let current = 0;
-    function show(index) {
-      current = Math.max(0, Math.min(slides.length - 1, index));
-      slides.forEach((slide, i) => slide.classList.toggle('active', i === current));
-      document.getElementById('counter').textContent = `${current + 1} / ${slides.length}`;
-      document.getElementById('prev').disabled = current === 0;
-      document.getElementById('next').disabled = current === slides.length - 1;
-      history.replaceState(null, '', `#${current + 1}`);
-      if (current === 1) drawChart();
-    }
-    document.getElementById('prev').addEventListener('click', () => show(current - 1));
-    document.getElementById('next').addEventListener('click', () => show(current + 1));
-    document.addEventListener('keydown', (event) => {
-      if (['ArrowRight', 'PageDown', ' '].includes(event.key)) show(current + 1);
-      if (['ArrowLeft', 'PageUp'].includes(event.key)) show(current - 1);
-      if (event.key === 'Home') show(0);
-      if (event.key === 'End') show(slides.length - 1);
-    });
+    <div class="losses">
+      <article class="loss-card"><h3>MLP head loss</h3><p>Normalized chunk MSE；无额外 rotation geodesic 项。</p><span class="equation">L<sub>MLP</sub> = MSE(â, a)</span></article>
+      <article class="loss-card"><h3>Flow Matching head loss</h3><p><span class="mono">t ~ Beta(1.5,1)</span>，<span class="mono">xₜ=tε+(1−t)a</span>，目标速度 <span class="mono">uₜ=ε−a</span>。</p><span class="equation">L<sub>FM</sub> = E ‖v<sub>θ</sub>(xₜ,t,h) − uₜ‖²</span></article>
+      <article class="loss-card"><h3>A · robot only</h3><p>pose 与 joint 两个 head 等权相加。</p><span class="equation">L<sub>A</sub> = L<sub>r,pose</sub> + L<sub>r,joint</sub></span></article>
+      <article class="loss-card"><h3>B · robot + human</h3><p>每 step 各取一个 domain batch；最终对两域求均值。</p><span class="equation">L<sub>B</sub> = ½(L<sub>r,pose</sub>+L<sub>r,joint</sub>) + ½L<sub>h,pose</sub></span></article>
+    </div>
+    <span class="slide-no">1 / 2</span>
+  </section>
 
-    const chartData = [
-      { name: 'First TCP position error', unit: 'mm', max: 120, values: [104.73, 107.62, 30.93, 36.58] },
-      { name: '30-step TCP position error', unit: 'mm', max: 120, values: [97.12, 101.00, 49.63, 54.17] },
-      { name: 'Adjacent predicted displacement', unit: 'mm', max: 75, values: [66.19, 65.44, 13.05, 12.93] }
-    ];
-    const series = ['FM A', 'FM B', 'MLP A', 'MLP B'];
-    const colors = ['#4f6680', '#8fa2b3', '#db721c', '#f4b177'];
+  <section class="slide" data-slide="2">
+    <div class="eyebrow">Training & offline evaluation</div>
+    <h2>Training Configuration｜训练设置与离线结果</h2>
+    <p class="subtitle">固定 robot validation split：7 episodes · 2,381 frames</p>
 
-    function svgEl(name, attrs = {}) {
-      const el = document.createElementNS('http://www.w3.org/2000/svg', name);
-      Object.entries(attrs).forEach(([key, value]) => el.setAttribute(key, value));
-      return el;
-    }
-    function drawChart() {
-      const svg = document.getElementById('metricsChart');
-      const box = svg.getBoundingClientRect();
-      if (!box.width || !box.height) return;
-      const width = Math.max(600, box.width);
-      const height = Math.max(300, box.height);
-      svg.replaceChildren();
-      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      const gap = 28;
-      const panelW = (width - gap * 2) / 3;
-      const top = 38, bottom = 50, left = 40, right = 8;
-      const plotH = height - top - bottom;
+    <div class="config-grid">
+      <article class="config"><h3>Dataset</h3><p><b>A</b>: 63 Piper train episodes · 22,406 frames<br><b>B</b>: A + 45 Aria train episodes · 7,546 frames<br>Split seed = 42</p></article>
+      <article class="config"><h3>Optimization</h3><p>10,000 updates · batch 8/domain<br>AdamW · lr <span class="mono">1e−4</span> · wd <span class="mono">1e−4</span><br>cosine → <span class="mono">1e−5</span> · BF16</p></article>
+      <article class="config"><h3>Sequence</h3><p>30 Hz · observation horizon 1<br>action horizon 30 = 1.0 s<br>RGB resize 224² + ColorJitter</p></article>
+      <article class="config"><h3>Compared variants</h3><p>A+MLP · B+MLP · A+FM · B+FM<br>same HPT trunk and robot split<br>FM uses fixed inference seeds</p></article>
+    </div>
 
-      chartData.forEach((metric, panel) => {
-        const x0 = panel * (panelW + gap);
-        const plotX = x0 + left;
-        const plotW = panelW - left - right;
-        const title = svgEl('text', { x: x0 + panelW / 2, y: 18, 'text-anchor': 'middle', fill: '#152236', 'font-size': 14, 'font-weight': 700 });
-        title.textContent = metric.name;
-        svg.appendChild(title);
+    <div class="results">
+      <div class="chart-wrap">
+        <div class="chart-head">
+          <h3>Offline Cartesian benchmark（越低越好）</h3>
+          <div class="legend"><span><i class="sw fma"></i>FM A</span><span><i class="sw fmb"></i>FM B</span><span><i class="sw mlpa"></i>MLP A</span><span><i class="sw mlpb"></i>MLP B</span></div>
+        </div>
+        <svg id="chart" role="img" aria-label="Offline errors for FM A, FM B, MLP A and MLP B"></svg>
+        <p class="note">Cartesian pose-head完整离线评估；同一7条Piper验证轨迹、目标与mask。FM为原监控best（A 9.1k / B 9.8k），MLP为10k final，因此用于阶段性比较，不视为严格单变量因果实验。</p>
+      </div>
+      <aside class="metric-table">
+        <h3>Additional metrics</h3>
+        <table>
+          <thead><tr><th>Model</th><th>Rot. °</th><th>Grip. mm</th></tr></thead>
+          <tbody>
+            <tr><td>FM A</td><td>18.44</td><td>15.35</td></tr>
+            <tr><td>FM B</td><td>20.57</td><td>14.32</td></tr>
+            <tr><td>MLP A</td><td>11.06</td><td>5.24</td></tr>
+            <tr><td>MLP B</td><td>12.61</td><td>4.95</td></tr>
+          </tbody>
+        </table>
+        <p class="small" style="margin-top:5%">Rot. = 30-step orientation error<br>Grip. = 30-step gripper MAE</p>
+        <div class="takeaway"><b>Observed trend</b><br>MLP显著降低位置误差与 chunk 内跳动；B 在当前 Piper 原场景验证集上未优于 A。离线误差不能替代真机成功率。</div>
+      </aside>
+    </div>
+    <span class="slide-no">2 / 2</span>
+  </section>
+</main>
 
-        [0, .25, .5, .75, 1].forEach(frac => {
-          const y = top + plotH * (1 - frac);
-          svg.appendChild(svgEl('line', { x1: plotX, x2: plotX + plotW, y1: y, y2: y, stroke: '#d9d6ce', 'stroke-width': 1 }));
-          const tick = svgEl('text', { x: plotX - 7, y: y + 4, 'text-anchor': 'end', fill: '#687382', 'font-size': 10 });
-          tick.textContent = Math.round(metric.max * frac);
-          svg.appendChild(tick);
-        });
-
-        const barGap = plotW * .035;
-        const barW = (plotW - barGap * 5) / 4;
-        metric.values.forEach((value, i) => {
-          const barH = plotH * value / metric.max;
-          const x = plotX + barGap + i * (barW + barGap);
-          const y = top + plotH - barH;
-          svg.appendChild(svgEl('rect', { x, y, width: barW, height: barH, rx: 3, fill: colors[i] }));
-          const label = svgEl('text', { x: x + barW / 2, y: Math.max(top + 12, y - 6), 'text-anchor': 'middle', fill: '#152236', 'font-size': 11, 'font-weight': 700 });
-          label.textContent = value.toFixed(1);
-          svg.appendChild(label);
-          const name = svgEl('text', { x: x + barW / 2, y: top + plotH + 18, 'text-anchor': 'middle', fill: '#5f6b7a', 'font-size': 10 });
-          name.textContent = series[i];
-          svg.appendChild(name);
-        });
-        const unit = svgEl('text', { x: x0 + 4, y: top - 8, fill: '#687382', 'font-size': 10 });
-        unit.textContent = metric.unit;
-        svg.appendChild(unit);
-      });
-    }
-
-    window.addEventListener('resize', () => { if (current === 1) drawChart(); });
-    const initial = Number(location.hash.slice(1)) - 1;
-    show(Number.isFinite(initial) ? initial : 0);
-  </script>
+<nav class="nav" aria-label="Slide navigation"><button id="prev">←</button><span id="counter">1 / 2</span><button id="next">→</button></nav>
+<script>
+  const slides=[...document.querySelectorAll('.slide')];let current=0;
+  function show(i){current=Math.max(0,Math.min(slides.length-1,i));slides.forEach((s,n)=>s.classList.toggle('active',n===current));counter.textContent=`${current+1} / ${slides.length}`;prev.disabled=current===0;next.disabled=current===slides.length-1;history.replaceState(null,'',`#${current+1}`);if(current===1)drawChart()}
+  prev.onclick=()=>show(current-1);next.onclick=()=>show(current+1);
+  document.addEventListener('keydown',e=>{if(['ArrowRight','PageDown',' '].includes(e.key))show(current+1);if(['ArrowLeft','PageUp'].includes(e.key))show(current-1);if(e.key==='Home')show(0);if(e.key==='End')show(1)});
+  const data=[
+    {title:'First-step TCP position',max:120,values:[104.73,107.62,30.93,36.58]},
+    {title:'30-step TCP position',max:120,values:[97.12,101.00,49.63,54.17]},
+    {title:'Adjacent action displacement',max:75,values:[66.19,65.44,13.05,12.93]}
+  ];
+  const names=['FM A','FM B','MLP A','MLP B'],colors=['#506982','#93a6b7','#dc741e','#f3b27c'];
+  function el(tag,a={}){const x=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(a).forEach(([k,v])=>x.setAttribute(k,v));return x}
+  function drawChart(){const svg=document.querySelector('#chart'),r=svg.getBoundingClientRect();if(!r.width||!r.height)return;const W=r.width,H=r.height,gap=24,pw=(W-gap*2)/3,top=30,bottom=38,left=34,ph=H-top-bottom;svg.replaceChildren();svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    data.forEach((m,p)=>{const x0=p*(pw+gap),px=x0+left,plotW=pw-left-5;let t=el('text',{x:x0+pw/2,y:15,'text-anchor':'middle',fill:'#132238','font-size':12,'font-weight':700});t.textContent=m.title;svg.append(t);
+      [0,.25,.5,.75,1].forEach(f=>{const y=top+ph*(1-f);svg.append(el('line',{x1:px,x2:px+plotW,y1:y,y2:y,stroke:'#d9d6cf','stroke-width':1}));let q=el('text',{x:px-5,y:y+3,'text-anchor':'end',fill:'#607084','font-size':9});q.textContent=Math.round(m.max*f);svg.append(q)});
+      const bg=plotW*.035,bw=(plotW-bg*5)/4;m.values.forEach((v,i)=>{const bh=ph*v/m.max,x=px+bg+i*(bw+bg),y=top+ph-bh;svg.append(el('rect',{x,y,width:bw,height:bh,rx:2,fill:colors[i]}));let q=el('text',{x:x+bw/2,y:Math.max(top+10,y-5),'text-anchor':'middle',fill:'#132238','font-size':10,'font-weight':700});q.textContent=v.toFixed(1);svg.append(q);q=el('text',{x:x+bw/2,y:top+ph+15,'text-anchor':'middle',fill:'#607084','font-size':9});q.textContent=names[i];svg.append(q)});
+      let u=el('text',{x:x0+2,y:top-6,fill:'#607084','font-size':9});u.textContent='mm';svg.append(u)});
+  }
+  addEventListener('resize',()=>{if(current===1)drawChart()});const initial=Number(location.hash.slice(1))-1;show(Number.isFinite(initial)?initial:0);
+</script>
 </body>
 </html>
