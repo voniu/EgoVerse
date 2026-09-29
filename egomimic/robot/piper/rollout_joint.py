@@ -474,6 +474,15 @@ def main():
                     feedback_target = geometry.feedback_from_model(joints)
                     live_raw = robot.read_state()
                     live_state = geometry.joint_state(live_raw)
+                    control_status = robot.control_status()
+                    if args.execute and (
+                        control_status["ctrl_mode"] != 1
+                        or control_status["arm_status"] != 0
+                        or not all(control_status["enabled"])
+                    ):
+                        raise RuntimeError(
+                            f"Piper left active CAN control: {control_status}"
+                        )
                     tracking_error_deg = np.abs(np.rad2deg(joints - live_state[:6]))
                     if (
                         args.execute
@@ -482,7 +491,8 @@ def main():
                         raise RuntimeError(
                             "Joint target is outrunning feedback: "
                             f"{tracking_error_deg.max():.1f}deg > "
-                            f"{args.max_tracking_error_deg:.1f}deg"
+                            f"{args.max_tracking_error_deg:.1f}deg; "
+                            f"status={control_status}"
                         )
                     if args.execute:
                         robot.send(feedback_target, action[6])
@@ -509,6 +519,7 @@ def main():
                                     joints - live_state[:6]
                                 ).tolist(),
                                 chunk_displacement_deg=float(chunk_displacement_deg),
+                                control_status=control_status,
                                 sent=args.execute,
                             )
                         )

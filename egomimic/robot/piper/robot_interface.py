@@ -183,15 +183,43 @@ class PiperHardware:
                 raise RuntimeError("Piper enable timed out")
             time.sleep(0.02)
         until = time.monotonic() + 5
+        stable_samples = 0
         while True:
             self.piper.MotionCtrl_2(0x01, 0x01, speed_percent, 0x00)
             status = self.piper.GetArmStatus().arm_status
-            if int(status.arm_status) == 0 and int(status.ctrl_mode) == 1:
-                break
+            enabled = self.piper.GetArmEnableStatus()
+            if (
+                int(status.arm_status) == 0
+                and int(status.ctrl_mode) == 1
+                and all(enabled)
+            ):
+                stable_samples += 1
+                if stable_samples >= 3:
+                    break
+            else:
+                stable_samples = 0
             if time.monotonic() > until:
-                raise RuntimeError(f"Piper did not enter CAN control mode: {status}")
+                raise RuntimeError(
+                    f"Piper control startup timed out: {status}, enabled={enabled}"
+                )
             time.sleep(0.02)
         self.piper.GripperCtrl(int(raw[6]), 1000, 0x01, 0)
+        # Hold the measured target while the controller finishes entering
+        # streamed MOVE-J operation.
+        for _ in range(10):
+            self.piper.MotionCtrl_2(0x01, 0x01, speed_percent, 0x00)
+            self.piper.JointCtrl(*np.rint(raw[:6]).astype(int).tolist())
+            time.sleep(0.02)
+
+    def control_status(self):
+        status = self.piper.GetArmStatus().arm_status
+        return {
+            "ctrl_mode": int(status.ctrl_mode),
+            "arm_status": int(status.arm_status),
+            "mode_feed": int(status.mode_feed),
+            "motion_status": int(status.motion_status),
+            "enabled": [bool(value) for value in self.piper.GetArmEnableStatus()],
+        }
 
     def send(self, q, opening):
         if not self.controlling:
