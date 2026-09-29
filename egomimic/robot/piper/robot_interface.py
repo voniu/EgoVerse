@@ -111,8 +111,13 @@ class Geometry:
 
 
 class PiperHardware:
-    def __init__(self, geometry, port="can_follower", wrist_serial="427622273943"):
-        import pyrealsense2 as rs
+    def __init__(
+        self,
+        geometry,
+        port="can_follower",
+        wrist_serial="427622273943",
+        use_cameras=True,
+    ):
         from piper_sdk import C_PiperInterface_V2
 
         self.geometry = geometry
@@ -121,22 +126,29 @@ class PiperHardware:
         self.controlling = False
         self.speed_percent = None
         try:
-            self.piper.ConnectPort(piper_init=False)
-            time.sleep(0.3)
+            self.piper.ConnectPort()
+            time.sleep(0.1)
+            # The firmware master/slave role is independent of our leader/follower
+            # naming. Force this arm into the motion-output role on every connect.
+            self.piper.MasterSlaveConfig(0xFC, 0x00, 0x00, 0x00)
+            time.sleep(1.0)
             self.read_state()
-            for serial in [
-                geometry.config["cameras"]["d435if"]["serial"],
-                wrist_serial,
-            ]:
-                pipeline, config = rs.pipeline(), rs.config()
-                config.enable_device(serial)
-                config.enable_stream(rs.stream.color, 640, 480, rs.format.rgb8, 30)
-                pipeline.start(config)
-                self.pipelines.append(pipeline)
-            # Let automatic exposure settle; consumes frames without controlling the arm.
-            until = time.monotonic() + 2
-            while time.monotonic() < until:
-                self.images()
+            if use_cameras:
+                import pyrealsense2 as rs
+
+                for serial in [
+                    geometry.config["cameras"]["d435if"]["serial"],
+                    wrist_serial,
+                ]:
+                    pipeline, config = rs.pipeline(), rs.config()
+                    config.enable_device(serial)
+                    config.enable_stream(rs.stream.color, 640, 480, rs.format.rgb8, 30)
+                    pipeline.start(config)
+                    self.pipelines.append(pipeline)
+                # Let automatic exposure settle without controlling the arm.
+                until = time.monotonic() + 2
+                while time.monotonic() < until:
+                    self.images()
         except BaseException:
             self.close()
             raise
@@ -171,21 +183,40 @@ class PiperHardware:
         # stop left by close(), so reset it explicitly before CAN control.
         self.piper.EmergencyStop(0x02)
         until = time.monotonic() + 5
-        while int(self.piper.GetArmStatus().arm_status.arm_status) != 0:
+        stable_samples = 0
+        while stable_samples < 25:
+            status = self.piper.GetArmStatus().arm_status
+            if int(status.arm_status) == 0 and int(status.err_code) == 0:
+                stable_samples += 1
+            else:
+                stable_samples = 0
             if time.monotonic() > until:
                 raise RuntimeError("Piper emergency-stop reset timed out")
             time.sleep(0.02)
-        # Preload the measured position before enabling, avoiding an old target.
-        self.piper.JointCtrl(*np.rint(raw[:6]).astype(int).tolist())
         until = time.monotonic() + 5
-        while not self.piper.EnablePiper():
+        stable_samples = 0
+        while stable_samples < 25:
+            self.piper.EnablePiper()
+            status = self.piper.GetArmStatus().arm_status
+            enabled = self.piper.GetArmEnableStatus()
+            if (
+                int(status.arm_status) == 0
+                and int(status.err_code) == 0
+                and all(enabled)
+            ):
+                stable_samples += 1
+            else:
+                stable_samples = 0
             if time.monotonic() > until:
                 raise RuntimeError("Piper enable timed out")
             time.sleep(0.02)
+        self.piper.MotionCtrl_2(0x01, 0x01, speed_percent, 0x00)
+        # Preload the measured position immediately after entering MOVE-J, so an
+        # old controller target cannot move the arm during handover.
+        self.piper.JointCtrl(*np.rint(raw[:6]).astype(int).tolist())
         until = time.monotonic() + 5
         stable_samples = 0
         while True:
-            self.piper.MotionCtrl_2(0x01, 0x01, speed_percent, 0x00)
             status = self.piper.GetArmStatus().arm_status
             enabled = self.piper.GetArmEnableStatus()
             if (
@@ -194,7 +225,7 @@ class PiperHardware:
                 and all(enabled)
             ):
                 stable_samples += 1
-                if stable_samples >= 3:
+                if stable_samples >= 25:
                     break
             else:
                 stable_samples = 0
@@ -204,20 +235,23 @@ class PiperHardware:
                 )
             time.sleep(0.02)
         self.piper.GripperCtrl(int(raw[6]), 1000, 0x01, 0)
-        # Hold the measured target while the controller finishes entering
-        # streamed MOVE-J operation.
-        for _ in range(10):
-            self.piper.MotionCtrl_2(0x01, 0x01, speed_percent, 0x00)
-            self.piper.JointCtrl(*np.rint(raw[:6]).astype(int).tolist())
-            time.sleep(0.02)
 
     def control_status(self):
         status = self.piper.GetArmStatus().arm_status
+        errors = status.err_status
         return {
             "ctrl_mode": int(status.ctrl_mode),
             "arm_status": int(status.arm_status),
             "mode_feed": int(status.mode_feed),
             "motion_status": int(status.motion_status),
+            "error_code": int(status.err_code),
+            "joint_limit_errors": [
+                bool(getattr(errors, f"joint_{i}_angle_limit")) for i in range(1, 7)
+            ],
+            "joint_communication_errors": [
+                bool(getattr(errors, f"communication_status_joint_{i}"))
+                for i in range(1, 7)
+            ],
             "enabled": [bool(value) for value in self.piper.GetArmEnableStatus()],
         }
 
@@ -225,9 +259,6 @@ class PiperHardware:
         if not self.controlling:
             raise RuntimeError("Control has not been started")
         raw = np.rint(np.rad2deg(q) / self.geometry.joint_scale).astype(int)
-        # Piper drops back to standby unless MOVE-J control is refreshed with
-        # the streamed position commands.
-        self.piper.MotionCtrl_2(0x01, 0x01, self.speed_percent, 0x00)
         self.piper.JointCtrl(*raw.tolist())
         # Piper L nominal physical stroke: 100mm; opening is in meters, not binary.
         self.piper.GripperCtrl(
