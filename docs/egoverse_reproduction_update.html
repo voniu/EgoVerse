@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EgoVerse Reproduction — Interim Update</title>
+  <style>
+    :root {
+      --ink: #152236;
+      --muted: #5f6b7a;
+      --paper: #f4f1ea;
+      --panel: #fffdf9;
+      --line: #d9d6ce;
+      --robot: #008c95;
+      --robot-soft: #dceff0;
+      --human: #e9862c;
+      --human-soft: #fae9da;
+      --shared: #6555b5;
+      --shared-soft: #e8e4f7;
+      --good: #21835b;
+      --good-soft: #dff1e8;
+      --fm: #60758b;
+      --mlp: #e47b20;
+      --shadow: 0 18px 50px rgba(21, 34, 54, .12);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #202734; color: var(--ink); }
+    body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+
+    .deck { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .slide {
+      display: none;
+      width: min(96vw, 1600px, calc((100vh - 48px) * 16 / 9));
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      padding: 2.8% 3.5% 2.5%;
+    }
+    .slide.active { display: flex; flex-direction: column; }
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 9px;
+      background: linear-gradient(90deg, var(--robot) 0 34%, var(--shared) 34% 68%, var(--human) 68%);
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1, h2 { letter-spacing: -.035em; font-weight: 700; }
+    h1 { font-size: clamp(31px, 2.8vw, 54px); line-height: 1.02; }
+    h2 { font-size: clamp(29px, 2.55vw, 48px); line-height: 1.04; }
+    h3 { font-size: clamp(14px, 1.05vw, 20px); font-weight: 700; }
+    .eyebrow {
+      color: var(--shared);
+      font-size: clamp(11px, .9vw, 16px);
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      margin-bottom: .55%;
+    }
+    .subtitle { margin-top: .5%; color: var(--muted); font-size: clamp(13px, .95vw, 18px); }
+    .slide-no { position: absolute; right: 2.3%; bottom: 2.1%; color: #8b929d; font-size: clamp(11px, .8vw, 15px); }
+    .footnote { color: var(--muted); font-size: clamp(9px, .67vw, 13px); line-height: 1.3; }
+
+    /* Slide 1 */
+    .arch-layout {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1.05fr 42px 1.02fr 42px 1.05fr;
+      align-items: stretch;
+      gap: .85%;
+      margin-top: 1.5%;
+      min-height: 0;
+    }
+    .column { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 2%; }
+    .flow-arrow { display: grid; place-items: center; color: var(--shared); font-size: clamp(24px, 2.4vw, 43px); font-weight: 300; }
+    .node {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      padding: 3% 4%;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .node.robot { border-left: 7px solid var(--robot); }
+    .node.human { border-left: 7px solid var(--human); }
+    .node.shared { border-left: 7px solid var(--shared); }
+    .node.good { border-left: 7px solid var(--good); }
+    .node h3 { margin-bottom: 1.5%; }
+    .node.robot h3 { color: var(--robot); }
+    .node.human h3 { color: var(--human); }
+    .node.shared h3 { color: var(--shared); }
+    .node.good h3 { color: var(--good); }
+    .spec { display: grid; grid-template-columns: 31% 69%; row-gap: .18em; font-size: clamp(9px, .64vw, 12px); line-height: 1.2; }
+    .spec dt { color: var(--muted); font-weight: 650; }
+    .spec dd { margin: 0; font-variant-numeric: tabular-nums; }
+    .tensor { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .94em; }
+    .input-stack { flex: 1; }
+    .dataset-row { display: grid; grid-template-columns: 1fr 1fr; gap: 2%; }
+    .dataset-chip {
+      border-radius: 12px;
+      padding: 3% 4%;
+      background: var(--robot-soft);
+      color: #125f64;
+      font-size: clamp(9px, .61vw, 12px);
+      line-height: 1.18;
+    }
+    .dataset-chip.h { background: var(--human-soft); color: #8d4c17; }
+    .dataset-chip b { display: block; font-size: 1.13em; margin-bottom: 2%; }
+    .shared-core { flex: 1; display: flex; flex-direction: column; justify-content: space-between; }
+    .token-strip { display: flex; gap: 4px; margin: 3% 0 2%; }
+    .token-strip i { display: block; flex: 1; height: 9px; border-radius: 99px; background: var(--shared); opacity: .7; }
+    .token-strip i:nth-child(-n+3) { background: var(--robot); }
+    .head-grid { flex: 1; min-height: 0; display: grid; grid-template-rows: 1fr 1fr; gap: 2%; }
+    .head-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 2%; margin-top: 2%; }
+    .choice {
+      padding: 3%; border-radius: 10px; background: #eef1f4;
+      font-size: clamp(8px, .59vw, 11px); line-height: 1.16;
+    }
+    .choice.mlp { background: #fff0e2; }
+    .choice b { display: block; margin-bottom: 2%; }
+    .matrix {
+      margin-top: 2%;
+      display: grid;
+      grid-template-columns: 44px repeat(2, 1fr);
+      gap: 3px;
+      align-items: center;
+      font-size: clamp(8px, .57vw, 11px);
+      text-align: center;
+    }
+    .matrix .cell { padding: 3px; border-radius: 6px; background: #edf0f3; }
+    .matrix .active-a { background: var(--robot-soft); color: #086d73; font-weight: 750; }
+    .matrix .active-b { background: var(--shared-soft); color: #51439c; font-weight: 750; }
+    .arch-footer { margin-top: .8%; display: flex; justify-content: space-between; align-items: baseline; gap: 2%; }
+    .arch-footer strong { color: var(--ink); }
+
+    /* Slide 2 */
+    .results-layout {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1.72fr .78fr;
+      gap: 3.2%;
+      margin-top: 1.5%;
+      min-height: 0;
+    }
+    .chart-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+    .legend { display: flex; gap: 18px; align-items: center; margin: .5% 0 1.3%; color: var(--muted); font-size: clamp(10px, .72vw, 14px); }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 18px; height: 8px; border-radius: 2px; display: inline-block; }
+    .swatch.fm-a { background: #4f6680; } .swatch.fm-b { background: #8fa2b3; }
+    .swatch.mlp-a { background: #db721c; } .swatch.mlp-b { background: #f4b177; }
+    #metricsChart { width: 100%; flex: 1; min-height: 0; }
+    .insights { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 2%; }
+    .finding {
+      padding: 4.5%;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 15px;
+    }
+    .finding.primary { background: var(--good-soft); border-color: #b9dccb; }
+    .finding h3 { margin-bottom: 2%; }
+    .finding p { color: var(--muted); font-size: clamp(9px, .68vw, 13px); line-height: 1.3; }
+    .finding strong { color: var(--ink); }
+    .big-result { color: var(--good); font-size: clamp(23px, 1.9vw, 36px); font-weight: 800; letter-spacing: -.04em; margin: 1% 0 1.5%; }
+    .mini-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 3%; }
+    .mini-metrics div { background: #f0eee8; border-radius: 9px; padding: 5%; }
+    .mini-metrics b { display: block; font-size: clamp(15px, 1.2vw, 22px); }
+    .mini-metrics span { color: var(--muted); font-size: clamp(8px, .62vw, 12px); }
+    .status-line {
+      margin-top: auto;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 9px;
+      align-items: start;
+      color: var(--muted);
+      font-size: clamp(9px, .69vw, 13px);
+      line-height: 1.35;
+    }
+    .pulse { width: 9px; height: 9px; margin-top: 3px; border-radius: 50%; background: var(--shared); box-shadow: 0 0 0 4px var(--shared-soft); }
+
+    .nav {
+      position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 8px; z-index: 4;
+      background: rgba(18, 25, 36, .88); color: white; padding: 7px 10px; border-radius: 99px;
+      font-size: 12px;
+    }
+    .nav button { border: 0; background: transparent; color: white; cursor: pointer; font: inherit; padding: 3px 7px; }
+    .nav button:disabled { opacity: .35; cursor: default; }
+    @media print {
+      html, body { background: white; }
+      .deck { display: block; padding: 0; }
+      .slide { display: flex !important; width: 100vw; height: 56.25vw; box-shadow: none; page-break-after: always; }
+      .nav { display: none; }
+    }
+    @media (max-aspect-ratio: 4/3) {
+      .deck { padding: 8px; }
+      .slide { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck" aria-label="EgoVerse reproduction interim presentation">
+    <section class="slide active" data-slide="1">
+      <div class="eyebrow">EgoVerse reproduction · interim group update</div>
+      <h1>From cross-embodiment pose learning<br>to direct Piper joint control</h1>
+      <p class="subtitle">One shared visual-policy trunk, two data regimes, and two action-generation heads.</p>
+
+      <div class="arch-layout">
+        <div class="column input-stack">
+          <article class="node robot">
+            <h3>Piper domain</h3>
+            <dl class="spec">
+              <dt>RGB</dt><dd>front + wrist <span class="tensor">[B,3,224,224] ×2</span></dd>
+              <dt>State</dt><dd><span class="tensor">[q₁…q₆, gripper] → [B,7]</span></dd>
+              <dt>Vision</dt><dd>ResNet18 → <span class="tensor">[B,49,256]</span> / view</dd>
+              <dt>Stems</dt><dd>cross-attn → <span class="tensor">3 × [B,16,256]</span></dd>
+              <dt>Targets</dt><dd>TCP pose + direct joints, each <span class="tensor">[B,30,7]</span></dd>
+            </dl>
+          </article>
+          <article class="node human">
+            <h3>Aria / human domain · B only</h3>
+            <dl class="spec">
+              <dt>RGB</dt><dd>egocentric <span class="tensor">[B,3,224,224]</span></dd>
+              <dt>State</dt><dd>left-hand pose <span class="tensor">[B,6]</span></dd>
+              <dt>Stems</dt><dd><span class="tensor">2 × [B,16,256]</span></dd>
+              <dt>Target</dt><dd>camera-frame hand pose <span class="tensor">[B,30,6]</span></dd>
+            </dl>
+          </article>
+          <div class="dataset-row">
+            <div class="dataset-chip"><b>70 Piper demos</b>63 train / 22,406 frames<br>7 valid / 2,381 frames</div>
+            <div class="dataset-chip h"><b>50 Aria demos</b>45 train / 7,546 frames<br>5 valid / 837 frames</div>
+          </div>
+        </div>
+
+        <div class="flow-arrow" aria-hidden="true">→</div>
+
+        <div class="column">
+          <article class="node shared shared-core">
+            <div>
+              <h3>Shared HPT representation</h3>
+              <dl class="spec">
+                <dt>Width</dt><dd><span class="tensor">256</span></dd>
+                <dt>Trunk</dt><dd>16 transformer blocks · 8 heads</dd>
+                <dt>Horizon</dt><dd>1 observation → 30 action tokens</dd>
+                <dt>Piper</dt><dd><span class="tensor">[B,78,256] → [B,30,256]</span></dd>
+                <dt>Human</dt><dd><span class="tensor">[B,62,256] → [B,30,256]</span></dd>
+                <dt>Identity</dt><dd>learned domain embedding</dd>
+              </dl>
+            </div>
+            <div class="token-strip" aria-hidden="true">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+            <p class="footnote">B shares the trunk across robot and human batches; modality stems and output heads remain domain-aware.</p>
+          </article>
+          <div class="matrix" aria-label="Experiment matrix">
+            <div></div><b>MLP</b><b>Flow</b>
+            <b>A</b><div class="cell active-a">robot only</div><div class="cell active-a">robot only</div>
+            <b>B</b><div class="cell active-b">+ Aria</div><div class="cell active-b">+ Aria</div>
+          </div>
+        </div>
+
+        <div class="flow-arrow" aria-hidden="true">→</div>
+
+        <div class="column head-grid">
+          <article class="node shared">
+            <h3>Shared geometric pose head</h3>
+            <p class="footnote">Supervises a common geometric representation; retained for both domains and offline analysis.</p>
+            <div class="head-choice">
+              <div class="choice mlp"><b>Chunk MLP</b>deterministic MSE<br><span class="tensor">[B,30,D]</span></div>
+              <div class="choice"><b>Flow Matching</b>6-block CrossTransformer<br>128D · 4 heads · 50 steps</div>
+            </div>
+          </article>
+          <article class="node good">
+            <h3>Piper joint head · deployed</h3>
+            <dl class="spec">
+              <dt>Output</dt><dd><span class="tensor">[B,30,7]</span></dd>
+              <dt>Meaning</dt><dd>6 absolute joint targets + gripper opening</dd>
+              <dt>Control</dt><dd>direct SDK joint commands</dd>
+              <dt>Benefit</dt><dd>removes pose → IK branch failures</dd>
+            </dl>
+            <div class="head-choice">
+              <div class="choice mlp"><b>MLP head</b>256D hidden<br>full chunk at once</div>
+              <div class="choice"><b>FM head</b>same 30×7 target<br>iterative generation</div>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div class="arch-footer footnote">
+        <span><strong>A</strong> = Piper demonstrations only. <strong>B</strong> = Piper + aligned left-hand Aria demonstrations.</span>
+        <span>Training budget: 10k steps · batch 8/domain · BF16 · seed 42</span>
+      </div>
+      <span class="slide-no">1 / 2</span>
+    </section>
+
+    <section class="slide" data-slide="2">
+      <div class="eyebrow">Evidence so far</div>
+      <h2>Offline MLP gains transferred into<br>a smooth A+MLP robot rollout</h2>
+      <p class="subtitle">Full fixed Piper validation split: 7 episodes, 2,381 frames. Lower is better.</p>
+
+      <div class="results-layout">
+        <div class="chart-panel">
+          <div class="legend" aria-label="Chart legend">
+            <span><i class="swatch fm-a"></i>FM A</span>
+            <span><i class="swatch fm-b"></i>FM B</span>
+            <span><i class="swatch mlp-a"></i>MLP A</span>
+            <span><i class="swatch mlp-b"></i>MLP B</span>
+          </div>
+          <svg id="metricsChart" role="img" aria-label="Offline position error and predicted action displacement for FM and MLP in A and B settings"></svg>
+          <p class="footnote">Offline plot uses the completed Cartesian pose-head benchmark: FM selected checkpoints at steps 9.1k/9.8k; MLP final checkpoints at 10k. It is directional evidence, not a controlled head-only causal claim.</p>
+        </div>
+
+        <aside class="insights">
+          <article class="finding primary">
+            <h3>Robot observation</h3>
+            <div class="big-result">Smooth grasp</div>
+            <p><strong>A+MLP with the direct joint head</strong> produced a smooth pick-and-place trajectory and successful grasp behavior in repeated on-robot trials. A formal success rate is still pending.</p>
+          </article>
+          <article class="finding">
+            <h3>What the offline metrics say</h3>
+            <p>MLP reduced the 30-step TCP position error and internal chunk displacement by roughly half to four-fifths versus FM. Adding Aria data did not improve this in-domain Piper split.</p>
+            <div class="mini-metrics">
+              <div><b>11.1°</b><span>MLP A chunk rotation</span></div>
+              <div><b>5.2 mm</b><span>MLP A gripper MAE</span></div>
+              <div><b>18.4°</b><span>FM A chunk rotation</span></div>
+              <div><b>15.4 mm</b><span>FM A gripper MAE</span></div>
+            </div>
+          </article>
+          <div class="status-line">
+            <i class="pulse" aria-hidden="true"></i>
+            <span><strong>Current follow-up:</strong> A+MLP and A+FM are being retrained with median + Savitzky–Golay smoothing on command labels; B retraining waits for robot evidence.</span>
+          </div>
+        </aside>
+      </div>
+      <span class="slide-no">2 / 2</span>
+    </section>
+  </main>
+
+  <nav class="nav" aria-label="Slide navigation">
+    <button id="prev" type="button" aria-label="Previous slide">←</button>
+    <span id="counter">1 / 2</span>
+    <button id="next" type="button" aria-label="Next slide">→</button>
+  </nav>
+
+  <script>
+    const slides = [...document.querySelectorAll('.slide')];
+    let current = 0;
+    function show(index) {
+      current = Math.max(0, Math.min(slides.length - 1, index));
+      slides.forEach((slide, i) => slide.classList.toggle('active', i === current));
+      document.getElementById('counter').textContent = `${current + 1} / ${slides.length}`;
+      document.getElementById('prev').disabled = current === 0;
+      document.getElementById('next').disabled = current === slides.length - 1;
+      history.replaceState(null, '', `#${current + 1}`);
+      if (current === 1) drawChart();
+    }
+    document.getElementById('prev').addEventListener('click', () => show(current - 1));
+    document.getElementById('next').addEventListener('click', () => show(current + 1));
+    document.addEventListener('keydown', (event) => {
+      if (['ArrowRight', 'PageDown', ' '].includes(event.key)) show(current + 1);
+      if (['ArrowLeft', 'PageUp'].includes(event.key)) show(current - 1);
+      if (event.key === 'Home') show(0);
+      if (event.key === 'End') show(slides.length - 1);
+    });
+
+    const chartData = [
+      { name: 'First TCP position error', unit: 'mm', max: 120, values: [104.73, 107.62, 30.93, 36.58] },
+      { name: '30-step TCP position error', unit: 'mm', max: 120, values: [97.12, 101.00, 49.63, 54.17] },
+      { name: 'Adjacent predicted displacement', unit: 'mm', max: 75, values: [66.19, 65.44, 13.05, 12.93] }
+    ];
+    const series = ['FM A', 'FM B', 'MLP A', 'MLP B'];
+    const colors = ['#4f6680', '#8fa2b3', '#db721c', '#f4b177'];
+
+    function svgEl(name, attrs = {}) {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', name);
+      Object.entries(attrs).forEach(([key, value]) => el.setAttribute(key, value));
+      return el;
+    }
+    function drawChart() {
+      const svg = document.getElementById('metricsChart');
+      const box = svg.getBoundingClientRect();
+      if (!box.width || !box.height) return;
+      const width = Math.max(600, box.width);
+      const height = Math.max(300, box.height);
+      svg.replaceChildren();
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      const gap = 28;
+      const panelW = (width - gap * 2) / 3;
+      const top = 38, bottom = 50, left = 40, right = 8;
+      const plotH = height - top - bottom;
+
+      chartData.forEach((metric, panel) => {
+        const x0 = panel * (panelW + gap);
+        const plotX = x0 + left;
+        const plotW = panelW - left - right;
+        const title = svgEl('text', { x: x0 + panelW / 2, y: 18, 'text-anchor': 'middle', fill: '#152236', 'font-size': 14, 'font-weight': 700 });
+        title.textContent = metric.name;
+        svg.appendChild(title);
+
+        [0, .25, .5, .75, 1].forEach(frac => {
+          const y = top + plotH * (1 - frac);
+          svg.appendChild(svgEl('line', { x1: plotX, x2: plotX + plotW, y1: y, y2: y, stroke: '#d9d6ce', 'stroke-width': 1 }));
+          const tick = svgEl('text', { x: plotX - 7, y: y + 4, 'text-anchor': 'end', fill: '#687382', 'font-size': 10 });
+          tick.textContent = Math.round(metric.max * frac);
+          svg.appendChild(tick);
+        });
+
+        const barGap = plotW * .035;
+        const barW = (plotW - barGap * 5) / 4;
+        metric.values.forEach((value, i) => {
+          const barH = plotH * value / metric.max;
+          const x = plotX + barGap + i * (barW + barGap);
+          const y = top + plotH - barH;
+          svg.appendChild(svgEl('rect', { x, y, width: barW, height: barH, rx: 3, fill: colors[i] }));
+          const label = svgEl('text', { x: x + barW / 2, y: Math.max(top + 12, y - 6), 'text-anchor': 'middle', fill: '#152236', 'font-size': 11, 'font-weight': 700 });
+          label.textContent = value.toFixed(1);
+          svg.appendChild(label);
+          const name = svgEl('text', { x: x + barW / 2, y: top + plotH + 18, 'text-anchor': 'middle', fill: '#5f6b7a', 'font-size': 10 });
+          name.textContent = series[i];
+          svg.appendChild(name);
+        });
+        const unit = svgEl('text', { x: x0 + 4, y: top - 8, fill: '#687382', 'font-size': 10 });
+        unit.textContent = metric.unit;
+        svg.appendChild(unit);
+      });
+    }
+
+    window.addEventListener('resize', () => { if (current === 1) drawChart(); });
+    const initial = Number(location.hash.slice(1)) - 1;
+    show(Number.isFinite(initial) ? initial : 0);
+  </script>
+</body>
+</html>
