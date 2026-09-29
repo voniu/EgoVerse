@@ -457,7 +457,21 @@ def main():
                 chunk_displacement_deg = np.abs(
                     np.rad2deg(chunk[:, :6] - state[:6])
                 ).max()
-                if args.save_every and counter % args.save_every == 0:
+                guard_horizon = (
+                    args.query_every if args.execution_mode == "chunk" else 1
+                )
+                guarded_delta_deg = np.abs(
+                    np.rad2deg(chunk[:guard_horizon, :6] - state[:6])
+                )
+                guarded_displacement_deg = guarded_delta_deg.max()
+                guard_horizon_index, guard_joint_index = np.unravel_index(
+                    np.argmax(guarded_delta_deg), guarded_delta_deg.shape
+                )
+                guard_failed = (
+                    args.execute
+                    and guarded_displacement_deg > args.max_chunk_displacement_deg
+                )
+                if (args.save_every and counter % args.save_every == 0) or guard_failed:
                     np.savez(
                         args.output / f"query_{counter:04d}.npz",
                         raw_state=raw,
@@ -468,14 +482,12 @@ def main():
                         front=front,
                         wrist=wrist,
                     )
-                if (
-                    args.execute
-                    and chunk_displacement_deg > args.max_chunk_displacement_deg
-                ):
+                if guard_failed:
                     raise RuntimeError(
-                        "Predicted chunk is too far from current feedback: "
-                        f"{chunk_displacement_deg:.1f}deg > "
-                        f"{args.max_chunk_displacement_deg:.1f}deg"
+                        f"Predicted execution prefix is too far from current feedback: "
+                        f"{guarded_displacement_deg:.1f}deg > "
+                        f"{args.max_chunk_displacement_deg:.1f}deg at horizon "
+                        f"{guard_horizon_index}, J{guard_joint_index + 1}"
                     )
                 if args.execution_mode == "ensemble":
                     history.append((action_step, chunk))
@@ -559,6 +571,9 @@ def main():
                                     joints - live_state[:6]
                                 ).tolist(),
                                 chunk_displacement_deg=float(chunk_displacement_deg),
+                                guarded_displacement_deg=float(
+                                    guarded_displacement_deg
+                                ),
                                 control_status=control_status,
                                 sent=args.execute,
                             )
