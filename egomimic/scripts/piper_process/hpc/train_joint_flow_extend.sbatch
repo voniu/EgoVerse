@@ -19,12 +19,12 @@ case "$PIPER_GROUP" in
   a)
     PIPER_CONFIG=train_piper_a_joint_flow
     PIPER_STATS=$PIPER_ROOT/assets/joint_a_norm_stats.json
-    PIPER_INIT=$PIPER_ROOT/runs/a-joint-flow-3118129/checkpoints/epoch_epoch=95.ckpt
+    PIPER_INIT=$PIPER_ROOT/assets/a_joint_flow_best.ckpt
     ;;
   b)
     PIPER_CONFIG=train_piper_b_joint_flow
     PIPER_STATS=$PIPER_ROOT/assets/joint_b_norm_stats.json
-    PIPER_INIT=$PIPER_ROOT/runs/b-joint-flow-3118131/checkpoints/epoch_epoch=97.ckpt
+    PIPER_INIT=$PIPER_ROOT/assets/b_joint_flow_best.ckpt
     ;;
   *)
     echo "PIPER_GROUP must be a or b" >&2
