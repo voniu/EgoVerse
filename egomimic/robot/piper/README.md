@@ -96,6 +96,11 @@ python -m egomimic.robot.piper.rollout_joint \
 `--init-joint-tolerance-deg` 和 `--init-gripper-tolerance-mm` 调整；临时绕过使用
 `--skip-initialize`。
 
+默认还会拒绝相对当前反馈跨度超过 55 度的预测 chunk，并在命令领先真实关节超过
+30 度时停止。两项阈值分别由 `--max-chunk-displacement-deg` 和
+`--max-tracking-error-deg` 配置。初始化姿态取自已成功运行的
+`20260929_102453` 首帧反馈，以同时恢复腕部相机的已验证视角。
+
 部署参数均可从命令行调整：
 
 - `--speed-percent`：Piper SDK 速度百分比，默认 30。

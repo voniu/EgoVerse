@@ -184,6 +184,18 @@ def main():
     parser.add_argument("--init-joint-tolerance-deg", type=float, default=1.0)
     parser.add_argument("--init-gripper-tolerance-mm", type=float, default=5.0)
     parser.add_argument(
+        "--max-chunk-displacement-deg",
+        type=float,
+        default=55.0,
+        help="Reject a chunk too far from its observation before sending it",
+    )
+    parser.add_argument(
+        "--max-tracking-error-deg",
+        type=float,
+        default=30.0,
+        help="Stop if a command gets this far ahead of joint feedback",
+    )
+    parser.add_argument(
         "--joint-limit-tolerance-deg",
         type=float,
         default=3.0,
@@ -244,6 +256,8 @@ def main():
         or args.init_timeout <= 0
         or args.init_joint_tolerance_deg <= 0
         or args.init_gripper_tolerance_mm <= 0
+        or args.max_chunk_displacement_deg <= 0
+        or args.max_tracking_error_deg <= 0
         or args.joint_limit_tolerance_deg < 0
         or args.ensemble_decay < 0
         or args.min_start_gripper_mm < 0
@@ -352,6 +366,18 @@ def main():
                     state, front, wrist
                 )
                 inference_ms = (time.monotonic() - t0) * 1000
+                chunk_displacement_deg = np.abs(
+                    np.rad2deg(chunk[:, :6] - state[:6])
+                ).max()
+                if (
+                    args.execute
+                    and chunk_displacement_deg > args.max_chunk_displacement_deg
+                ):
+                    raise RuntimeError(
+                        "Predicted chunk is too far from current feedback: "
+                        f"{chunk_displacement_deg:.1f}deg > "
+                        f"{args.max_chunk_displacement_deg:.1f}deg"
+                    )
                 if args.save_every and counter % args.save_every == 0:
                     np.savez(
                         args.output / f"query_{counter:04d}.npz",
@@ -400,6 +426,16 @@ def main():
                     feedback_target = geometry.feedback_from_model(joints)
                     live_raw = robot.read_state()
                     live_state = geometry.joint_state(live_raw)
+                    tracking_error_deg = np.abs(np.rad2deg(joints - live_state[:6]))
+                    if (
+                        args.execute
+                        and tracking_error_deg.max() > args.max_tracking_error_deg
+                    ):
+                        raise RuntimeError(
+                            "Joint target is outrunning feedback: "
+                            f"{tracking_error_deg.max():.1f}deg > "
+                            f"{args.max_tracking_error_deg:.1f}deg"
+                        )
                     if args.execute:
                         robot.send(feedback_target, action[6])
                     source_horizon = max(horizon, 0)
@@ -424,6 +460,7 @@ def main():
                                 delta_joint_deg=np.rad2deg(
                                     joints - live_state[:6]
                                 ).tolist(),
+                                chunk_displacement_deg=float(chunk_displacement_deg),
                                 sent=args.execute,
                             )
                         )
