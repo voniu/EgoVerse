@@ -264,6 +264,18 @@ def main():
         help="Stop if a command gets this far ahead of joint feedback",
     )
     parser.add_argument(
+        "--tracking-gate-deg",
+        type=float,
+        default=0.0,
+        help="Hold each action until feedback is within this error; 0 disables",
+    )
+    parser.add_argument(
+        "--tracking-gate-timeout",
+        type=float,
+        default=1.0,
+        help="Stop if a tracking-gated action is not reached within this time",
+    )
+    parser.add_argument(
         "--joint-limit-tolerance-deg",
         type=float,
         default=3.0,
@@ -333,6 +345,8 @@ def main():
         or args.init_gripper_tolerance_mm <= 0
         or args.max_chunk_displacement_deg <= 0
         or args.max_tracking_error_deg <= 0
+        or args.tracking_gate_deg < 0
+        or args.tracking_gate_timeout <= 0
         or args.joint_limit_tolerance_deg < 0
         or args.ensemble_decay < 0
         or args.min_start_gripper_mm < 0
@@ -529,7 +543,6 @@ def main():
                 for horizon, action in actions:
                     if time.monotonic() - started >= args.duration:
                         break
-                    tick = time.monotonic()
                     joints, violation_deg = clip_near_joint_limits(
                         action[:6],
                         geometry.model_bounds,
@@ -544,65 +557,98 @@ def main():
                         first_violation = violation_deg
                         first_action = action
                     feedback_target = geometry.feedback_from_model(joints)
-                    live_raw = robot.read_state()
-                    live_state = geometry.joint_state(live_raw)
-                    control_status = robot.control_status()
-                    if args.execute and (
-                        control_status["ctrl_mode"] != 1
-                        or control_status["arm_status"] != 0
-                        or not all(control_status["enabled"])
-                    ):
-                        raise RuntimeError(
-                            f"Piper left active CAN control: {control_status}"
-                        )
-                    tracking_error_deg = np.abs(np.rad2deg(joints - live_state[:6]))
-                    if (
-                        args.execute
-                        and tracking_error_deg.max() > args.max_tracking_error_deg
-                    ):
-                        raise RuntimeError(
-                            "Joint target is outrunning feedback: "
-                            f"{tracking_error_deg.max():.1f}deg > "
-                            f"{args.max_tracking_error_deg:.1f}deg; "
-                            f"status={control_status}"
-                        )
-                    if args.execute:
-                        robot.send(feedback_target, action[6])
                     source_horizon = max(horizon, 0)
-                    log.write(
-                        json.dumps(
-                            dict(
-                                query=counter,
-                                horizon=horizon,
-                                action_step=action_step,
-                                ensemble_sources=ensemble_sources,
-                                elapsed_s=time.monotonic() - started,
-                                inference_ms=inference_ms,
-                                observed=live_state.tolist(),
-                                query_observed=state.tolist(),
-                                target=action.tolist(),
-                                raw_target=raw_chunk[source_horizon].tolist(),
-                                normalized_overrun=normalized_overrun[
-                                    source_horizon
-                                ].tolist(),
-                                commanded_joints_rad=joints.tolist(),
-                                joint_limit_violation_deg=violation_deg.tolist(),
-                                delta_joint_deg=np.rad2deg(
-                                    joints - live_state[:6]
-                                ).tolist(),
-                                chunk_displacement_deg=float(chunk_displacement_deg),
-                                guarded_displacement_deg=float(
-                                    guarded_displacement_deg
-                                ),
-                                control_status=control_status,
-                                sent=args.execute,
+                    gate_started = time.monotonic()
+                    gate_attempt = 0
+                    held_gripper = None
+                    while True:
+                        tick = time.monotonic()
+                        live_raw = robot.read_state()
+                        live_state = geometry.joint_state(live_raw)
+                        if held_gripper is None:
+                            held_gripper = float(live_state[6])
+                        control_status = robot.control_status()
+                        if args.execute and (
+                            control_status["ctrl_mode"] != 1
+                            or control_status["arm_status"] != 0
+                            or not all(control_status["enabled"])
+                        ):
+                            raise RuntimeError(
+                                f"Piper left active CAN control: {control_status}"
                             )
+                        tracking_error_deg = np.abs(np.rad2deg(joints - live_state[:6]))
+                        max_tracking_error = float(tracking_error_deg.max())
+                        if (
+                            args.execute
+                            and max_tracking_error > args.max_tracking_error_deg
+                        ):
+                            raise RuntimeError(
+                                "Joint target is outrunning feedback: "
+                                f"{max_tracking_error:.1f}deg > "
+                                f"{args.max_tracking_error_deg:.1f}deg; "
+                                f"status={control_status}"
+                            )
+                        gate_wait = bool(
+                            args.execute
+                            and args.tracking_gate_deg
+                            and max_tracking_error > args.tracking_gate_deg
                         )
-                        + "\n"
-                    )
-                    log.flush()
+                        gate_elapsed = time.monotonic() - gate_started
+                        if gate_wait and gate_elapsed > args.tracking_gate_timeout:
+                            raise RuntimeError(
+                                f"Tracking gate timed out after {gate_elapsed:.1f}s: "
+                                f"{max_tracking_error:.1f}deg > "
+                                f"{args.tracking_gate_deg:.1f}deg"
+                            )
+                        gripper_command = (
+                            held_gripper if gate_wait else float(action[6])
+                        )
+                        if args.execute:
+                            robot.send(feedback_target, gripper_command)
+                        log.write(
+                            json.dumps(
+                                dict(
+                                    query=counter,
+                                    horizon=horizon,
+                                    action_step=action_step,
+                                    ensemble_sources=ensemble_sources,
+                                    elapsed_s=time.monotonic() - started,
+                                    inference_ms=inference_ms,
+                                    observed=live_state.tolist(),
+                                    query_observed=state.tolist(),
+                                    target=action.tolist(),
+                                    raw_target=raw_chunk[source_horizon].tolist(),
+                                    normalized_overrun=normalized_overrun[
+                                        source_horizon
+                                    ].tolist(),
+                                    commanded_joints_rad=joints.tolist(),
+                                    commanded_gripper_m=gripper_command,
+                                    joint_limit_violation_deg=violation_deg.tolist(),
+                                    delta_joint_deg=np.rad2deg(
+                                        joints - live_state[:6]
+                                    ).tolist(),
+                                    chunk_displacement_deg=float(
+                                        chunk_displacement_deg
+                                    ),
+                                    guarded_displacement_deg=float(
+                                        guarded_displacement_deg
+                                    ),
+                                    tracking_gate_wait=gate_wait,
+                                    tracking_gate_attempt=gate_attempt,
+                                    control_status=control_status,
+                                    sent=args.execute,
+                                )
+                            )
+                            + "\n"
+                        )
+                        log.flush()
+                        time.sleep(
+                            max(0, 1 / args.control_hz - (time.monotonic() - tick))
+                        )
+                        if not gate_wait:
+                            break
+                        gate_attempt += 1
                     action_step += 1
-                    time.sleep(max(0, 1 / args.control_hz - (time.monotonic() - tick)))
                 if first_command is None:
                     break
                 delta = np.rad2deg(first_command - state[:6])
