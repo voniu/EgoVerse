@@ -190,6 +190,20 @@ def initialize_robot(
         time.sleep(1 / control_hz)
 
 
+def open_start_gripper(robot, geometry, target_mm, tolerance_mm, timeout_s):
+    started = time.monotonic()
+    while True:
+        opening_mm = robot.read_state()[6] * geometry.grip_scale * 1000
+        if abs(target_mm - opening_mm) <= tolerance_mm:
+            return {"duration_s": time.monotonic() - started, "opening_mm": opening_mm}
+        if time.monotonic() - started > timeout_s:
+            raise RuntimeError(
+                f"Opening gripper timed out: {opening_mm:.1f}mm / {target_mm:.1f}mm"
+            )
+        robot.send_gripper(target_mm / 1000)
+        time.sleep(1 / 30)
+
+
 def main():
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument(
@@ -264,6 +278,13 @@ def main():
         help="Reject execution below this initial opening; use 0 to disable",
     )
     parser.add_argument(
+        "--start-gripper-mm",
+        type=float,
+        default=100.0,
+        help="Open the gripper to this width before execution; use 0 to disable",
+    )
+    parser.add_argument("--start-gripper-timeout", type=float, default=5.0)
+    parser.add_argument(
         "--control-hz",
         type=float,
         default=30.0,
@@ -297,6 +318,8 @@ def main():
         or args.joint_limit_tolerance_deg < 0
         or args.ensemble_decay < 0
         or args.min_start_gripper_mm < 0
+        or not 0 <= args.start_gripper_mm <= 100
+        or args.start_gripper_timeout <= 0
         or args.control_hz <= 0
         or args.save_every < 0
     ):
@@ -382,6 +405,23 @@ def main():
                     f"INITIALIZED | {initialization['duration_s']:.1f}s | max error "
                     f"{max(initialization['joint_error_deg']):.2f}deg | gripper "
                     f"error {initialization['gripper_error_mm']:.1f}mm",
+                    flush=True,
+                )
+            if args.start_gripper_mm:
+                stage = "opening gripper"
+                gripper_start = open_start_gripper(
+                    robot,
+                    geometry,
+                    args.start_gripper_mm,
+                    args.init_gripper_tolerance_mm,
+                    args.start_gripper_timeout,
+                )
+                (args.output / "gripper_start.json").write_text(
+                    json.dumps(gripper_start, indent=2)
+                )
+                print(
+                    f"GRIPPER READY | {gripper_start['opening_mm']:.1f}mm | "
+                    f"{gripper_start['duration_s']:.1f}s",
                     flush=True,
                 )
         initial_raw = robot.read_state()

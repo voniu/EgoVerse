@@ -260,6 +260,11 @@ class PiperHardware:
             raise RuntimeError("Control has not been started")
         raw = np.rint(np.rad2deg(q) / self.geometry.joint_scale).astype(int)
         self.piper.JointCtrl(*raw.tolist())
+        self.send_gripper(opening)
+
+    def send_gripper(self, opening):
+        if not self.controlling:
+            raise RuntimeError("Control has not been started")
         # Piper L nominal physical stroke: 100mm; opening is in meters, not binary.
         self.piper.GripperCtrl(
             int(np.clip(opening, 0, 0.1) / self.geometry.grip_scale), 1000, 0x01, 0

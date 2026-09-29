@@ -154,7 +154,10 @@ Joint Head 训练目标是 30 步 action chunk。当前部署默认每步重新�
 
 70 条机器人示范的初始夹爪开度接近 100mm。执行模式默认要求初始开度至少 90mm；若
 当前夹爪只有约 70mm，模型输入已偏离示范起始分布，容易把它解释为抓取阶段并过早闭合。
-需要有意绕过此检查时可传 `--min-start-gripper-mm 0`。
+程序进入稳定 CAN 控制后会先以夹爪专用指令张开到 100mm，确认反馈进入 5mm 容差后才
+读取第一帧策略输入。可用 `--start-gripper-mm` 和 `--start-gripper-timeout` 调整；设置
+`--start-gripper-mm 0` 可跳过自动张开。需要有意绕过起始开度检查时可另传
+`--min-start-gripper-mm 0`。
 
 部署附加依赖见 `requirements-deploy.txt`。本工程虚拟环境没有pip时使用：
 
