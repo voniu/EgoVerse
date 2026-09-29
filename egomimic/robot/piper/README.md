@@ -89,6 +89,17 @@ python -m egomimic.robot.piper.rollout_joint \
 `.local_calibration/rollouts_joint/时间戳/`，其中保存每次观测、完整动作段、首个目标
 相对当前反馈的关节差和是否实际发送。
 
+部署参数均可从命令行调整：
+
+- `--speed-percent`：Piper SDK 速度百分比，默认 30。
+- `--execution-mode ensemble|chunk`：时间集成或连续执行一个 chunk 前缀。
+- `--chunk-size 1..30`：chunk 模式中每次重规划前执行的预测步数；等价于
+  `--query-every`。模型本身固定输出 30 步，改变这里不会改变网络结构。
+- `--control-hz`：命令发送频率，默认及训练数据频率均为 30Hz。
+- `--ensemble-decay`：ensemble 模式中新旧预测的指数权重衰减。
+- `--save-every`：每隔多少次推理保存一份图像和完整预测，默认 10；设为 0
+  可关闭。保存采用无压缩 NPZ，避免 RGB 压缩阻塞控制循环。
+
 2026-09-29 的只读实机检查使用当前姿态完成 52 次推理，平均推理时间约 16ms，输出
 全部有限且位于 URDF 关节范围内。当前姿态到首个预测目标的最大关节差约 13.4 度，
 主要来自 J5；执行时 SDK 速度百分比限制运动速度，但模型输出仍是绝对位置目标。

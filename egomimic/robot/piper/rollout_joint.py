@@ -131,6 +131,8 @@ def main():
     )
     parser.add_argument(
         "--query-every",
+        "--chunk-size",
+        dest="query_every",
         type=int,
         default=10,
         help="Chunk mode only: execute this prefix before observing again (1..30)",
@@ -153,6 +155,18 @@ def main():
         default=90.0,
         help="Reject execution below this initial opening; use 0 to disable",
     )
+    parser.add_argument(
+        "--control-hz",
+        type=float,
+        default=30.0,
+        help="Joint command frequency; training trajectories use 30Hz",
+    )
+    parser.add_argument(
+        "--save-every",
+        type=int,
+        default=10,
+        help="Save one uncompressed image/prediction NPZ every N queries; 0 disables",
+    )
     parser.add_argument("--duration", type=float, default=30)
     parser.add_argument(
         "--output",
@@ -169,9 +183,12 @@ def main():
         or args.joint_limit_tolerance_deg < 0
         or args.ensemble_decay < 0
         or args.min_start_gripper_mm < 0
+        or args.control_hz <= 0
+        or args.save_every < 0
     ):
         parser.error(
-            "speed-percent:1..100, query-every:1..30, duration must be positive"
+            "speed-percent:1..100, chunk-size:1..30, duration/control-hz must be "
+            "positive, save-every must be nonnegative"
         )
 
     geometry = Geometry(args.calibration)
@@ -193,10 +210,13 @@ def main():
                 "checkpoint_step": policy.step,
                 "checkpoint_sha256": sha256(checkpoint),
                 "source": run_record(ROOT),
-                "action_hz": 30,
+                "model_action_hz": 30,
+                "control_hz": args.control_hz,
                 "action_space": "absolute URDF joints rad + gripper m",
                 "replan_hz_nominal": (
-                    30 if args.execution_mode == "ensemble" else 30 / args.query_every
+                    args.control_hz
+                    if args.execution_mode == "ensemble"
+                    else args.control_hz / args.query_every
                 ),
             },
             indent=2,
@@ -239,16 +259,17 @@ def main():
                     state, front, wrist
                 )
                 inference_ms = (time.monotonic() - t0) * 1000
-                np.savez_compressed(
-                    args.output / f"query_{counter:04d}.npz",
-                    raw_state=raw,
-                    state=state,
-                    prediction=chunk,
-                    raw_prediction=raw_chunk,
-                    normalized_overrun=normalized_overrun,
-                    front=front,
-                    wrist=wrist,
-                )
+                if args.save_every and counter % args.save_every == 0:
+                    np.savez(
+                        args.output / f"query_{counter:04d}.npz",
+                        raw_state=raw,
+                        state=state,
+                        prediction=chunk,
+                        raw_prediction=raw_chunk,
+                        normalized_overrun=normalized_overrun,
+                        front=front,
+                        wrist=wrist,
+                    )
                 if args.execution_mode == "ensemble":
                     history.append((action_step, chunk))
                     history = [
@@ -317,7 +338,7 @@ def main():
                     )
                     log.flush()
                     action_step += 1
-                    time.sleep(max(0, 1 / 30 - (time.monotonic() - tick)))
+                    time.sleep(max(0, 1 / args.control_hz - (time.monotonic() - tick)))
                 if first_command is None:
                     break
                 delta = np.rad2deg(first_command - state[:6])
