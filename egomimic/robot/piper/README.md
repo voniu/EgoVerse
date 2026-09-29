@@ -82,7 +82,7 @@ python -m egomimic.robot.piper.rollout_joint --duration 5
 
 ```bash
 python -m egomimic.robot.piper.rollout_joint \
-  --execute --speed-percent 10 --duration 3 --query-every 10
+  --execute --speed-percent 10 --duration 3
 ```
 
 确认三秒动作方向后，可将 `--duration` 改为 `30`。日志写入
@@ -103,10 +103,15 @@ MLP 动作头的最后一层是无界线性层，而训练的 quantile-normalize
 1%–99% 分位范围，再应用 URDF 限位。日志和 NPZ 保留未约束预测、归一化越界量、
 训练分布裁剪结果和最终关节命令。
 
-Joint Head 训练目标是 30 步 action chunk。默认每次执行前 10 步（约 0.33 秒）再根据
-新图像重规划。只执行 horizon 0 的 `--query-every 1` 可能反复丢弃 chunk 中后续的
-推进动作：实机曾持续执行被裁剪到 J2/J3=0 度的首点，而同一 chunk 从 horizon 7
-开始已经离开边界。该现象表现为机械臂停在限位附近，不代表完整 chunk 也指向限位。
+Joint Head 训练目标是 30 步 action chunk。当前部署默认每步重新预测，并将过去 chunk
+对当前绝对时刻的预测按
+`exp(-0.05 * age)` 加权平均。它既保留旧 chunk 后续的推进信息，也利用新图像修正目标，
+避免只执行 horizon 0 停在 J2/J3 边界，以及每 10 步切换整段目标产生的跳变。旧行为可用
+`--execution-mode chunk --query-every 10` 复现。
+
+70 条机器人示范的初始夹爪开度接近 100mm。执行模式默认要求初始开度至少 90mm；若
+当前夹爪只有约 70mm，模型输入已偏离示范起始分布，容易把它解释为抓取阶段并过早闭合。
+需要有意绕过此检查时可传 `--min-start-gripper-mm 0`。
 
 部署附加依赖见 `requirements-deploy.txt`。本工程虚拟环境没有pip时使用：
 
