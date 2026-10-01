@@ -110,6 +110,16 @@ def clip_near_joint_limits(joints, bounds, tolerance_deg):
     return np.clip(joints, bounds[:, 0], bounds[:, 1]), violation_deg
 
 
+def limit_joint_command_step(target, feedback, max_step_deg):
+    """Limit the largest commanded joint delta while preserving its direction."""
+    delta = np.asarray(target) - np.asarray(feedback)
+    raw_delta_deg = np.rad2deg(delta)
+    largest = float(np.abs(raw_delta_deg).max())
+    scale = min(1.0, max_step_deg / largest) if largest else 1.0
+    command = np.asarray(feedback) + scale * delta
+    return command, raw_delta_deg, scale
+
+
 def temporal_ensemble(history, step, decay):
     """Average predictions for one absolute step, favoring newer chunks."""
     predictions = []
@@ -264,6 +274,15 @@ def main():
         help="Stop if a command gets this far ahead of joint feedback",
     )
     parser.add_argument(
+        "--max-command-step-deg",
+        type=float,
+        default=5.0,
+        help=(
+            "Limit the largest joint delta sent from live feedback; "
+            "all six deltas are scaled together"
+        ),
+    )
+    parser.add_argument(
         "--tracking-gate-deg",
         type=float,
         default=0.0,
@@ -345,6 +364,7 @@ def main():
         or args.init_gripper_tolerance_mm <= 0
         or args.max_chunk_displacement_deg <= 0
         or args.max_tracking_error_deg <= 0
+        or args.max_command_step_deg <= 0
         or args.tracking_gate_deg < 0
         or args.tracking_gate_timeout <= 0
         or args.joint_limit_tolerance_deg < 0
@@ -540,6 +560,9 @@ def main():
                 first_command = None
                 first_violation = None
                 first_action = None
+                first_raw_step_deg = None
+                first_applied_step_deg = None
+                first_step_scale = None
                 for horizon, action in actions:
                     if time.monotonic() - started >= args.duration:
                         break
@@ -548,15 +571,9 @@ def main():
                         geometry.model_bounds,
                         args.joint_limit_tolerance_deg,
                     )
-                    if horizon == 0:
-                        first_command = joints
+                    if horizon in (0, -1):
                         first_violation = violation_deg
                         first_action = action
-                    elif horizon == -1:
-                        first_command = joints
-                        first_violation = violation_deg
-                        first_action = action
-                    feedback_target = geometry.feedback_from_model(joints)
                     source_horizon = max(horizon, 0)
                     gate_started = time.monotonic()
                     gate_attempt = 0
@@ -567,6 +584,20 @@ def main():
                         live_state = geometry.joint_state(live_raw)
                         if held_gripper is None:
                             held_gripper = float(live_state[6])
+                        commanded_joints, raw_step_deg, step_scale = (
+                            limit_joint_command_step(
+                                joints,
+                                live_state[:6],
+                                args.max_command_step_deg,
+                            )
+                        )
+                        applied_step_deg = np.rad2deg(commanded_joints - live_state[:6])
+                        if horizon in (0, -1) and first_command is None:
+                            first_command = commanded_joints.copy()
+                            first_raw_step_deg = raw_step_deg.copy()
+                            first_applied_step_deg = applied_step_deg.copy()
+                            first_step_scale = step_scale
+                        feedback_target = geometry.feedback_from_model(commanded_joints)
                         control_status = robot.control_status()
                         if args.execute and (
                             control_status["ctrl_mode"] != 1
@@ -576,7 +607,7 @@ def main():
                             raise RuntimeError(
                                 f"Piper left active CAN control: {control_status}"
                             )
-                        tracking_error_deg = np.abs(np.rad2deg(joints - live_state[:6]))
+                        tracking_error_deg = np.abs(applied_step_deg)
                         max_tracking_error = float(tracking_error_deg.max())
                         if (
                             args.execute
@@ -621,12 +652,14 @@ def main():
                                     normalized_overrun=normalized_overrun[
                                         source_horizon
                                     ].tolist(),
-                                    commanded_joints_rad=joints.tolist(),
+                                    requested_joints_rad=joints.tolist(),
+                                    commanded_joints_rad=commanded_joints.tolist(),
                                     commanded_gripper_m=gripper_command,
                                     joint_limit_violation_deg=violation_deg.tolist(),
-                                    delta_joint_deg=np.rad2deg(
-                                        joints - live_state[:6]
-                                    ).tolist(),
+                                    raw_command_step_deg=raw_step_deg.tolist(),
+                                    delta_joint_deg=applied_step_deg.tolist(),
+                                    command_step_scale=float(step_scale),
+                                    command_step_limited=bool(step_scale < 1.0),
                                     chunk_displacement_deg=float(
                                         chunk_displacement_deg
                                     ),
@@ -651,11 +684,13 @@ def main():
                     action_step += 1
                 if first_command is None:
                     break
-                delta = np.rad2deg(first_command - state[:6])
                 print(
                     f"query {counter}: inference {inference_ms:.0f}ms, first joints "
                     f"{np.rad2deg(first_command).round(1)}, max delta "
-                    f"{np.abs(delta).max():.1f}deg, limit clip "
+                    f"{np.abs(first_applied_step_deg).max():.1f}deg, step clip "
+                    f"{np.abs(first_raw_step_deg).max():.1f}->"
+                    f"{np.abs(first_applied_step_deg).max():.1f}deg "
+                    f"(scale {first_step_scale:.2f}), limit clip "
                     f"{first_violation.max():.2f}deg, gripper "
                     f"{first_action[6] * 1000:.1f}mm, sources {ensemble_sources}",
                     flush=True,
