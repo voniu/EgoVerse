@@ -1,11 +1,17 @@
 _target_: egomimic.pl_utils.pl_model.ModelWrapper
 robomimic_model:
-  _target_: egomimic.algo.hpt.HPT
+  _target_: egomimic.algo.hpt_mixed_clean_v2.HPTMixedCleanV2
   camera_transforms: {}
   diffusion: true
-  6dof: false
-  ac_keys: {piper_right_arm: actions_joints}
-  shared_ac_key: actions_joints
+  6dof: true
+  ac_keys: {piper_right_arm: actions_cartesian_pose}
+  shared_ac_key: actions_cartesian_pose
+  auxiliary_ac_keys:
+    piper_right_arm: [actions_joints]
+  # With one domain this gives J + 0.5*P. B uses weights 2/1/1 and the
+  # existing two-domain average to keep the same robot objective plus 0.5*H.
+  loss_weights:
+    piper_right_arm: {shared: 0.5, actions_joints: 1.0}
   trunk:
     embed_dim: 256
     num_blocks: 16
@@ -45,7 +51,29 @@ robomimic_model:
   head_specs:
     piper_right_arm: null
     shared:
-      _target_: egomimic.models.residual_joint_policy_clean_v2.ResidualJointPolicyCleanV2
+      _target_: egomimic.models.fm_policy.FMPolicy
+      action_horizon: 100
+      num_inference_steps: 10
+      pooling: null
+      padding: null
+      time_dist: beta
+      early_horizon: 30
+      early_weight: 2.0
+      rotation_geodesic_weight: 0.1
+      infer_ac_dims: {piper_right_arm: 9}
+      model:
+        _target_: egomimic.models.denoising_nets.CrossTransformer
+        nblocks: 6
+        cond_dim: 256
+        hidden_dim: 128
+        act_dim: 9
+        act_seq: 100
+        n_heads: 4
+        dropout: 0.1
+        mlp_layers: 4
+        mlp_ratio: 4
+    piper_right_arm_actions_joints:
+      _target_: egomimic.models.residual_joint_policy_mixed_clean_v2.ResidualJointPolicyMixedCleanV2
       action_horizon: 100
       control_horizon: 30
       joint_dims: 6

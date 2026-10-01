@@ -8,8 +8,10 @@ train_datasets:
       key_map:
         _target_: egomimic.rldb.embodiment.piper_clean_v2.PiperJointCleanV2.get_keymap
         action_horizon: 30
+        mixed: true
       transform_list:
         _target_: egomimic.rldb.embodiment.piper_clean_v2.PiperJointCleanV2.get_transform_list
+        mixed: true
     filters:
       _target_: egomimic.rldb.filters.DatasetFilter
       filter_lambdas:
