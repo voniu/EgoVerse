@@ -1,6 +1,7 @@
 import os
 import random
 from collections import OrderedDict
+from collections.abc import Mapping
 from functools import partial
 from typing import Literal
 
@@ -110,6 +111,7 @@ class HPTModel(nn.Module):
         self.shared_keys = []
 
         self.auxiliary_ac_keys = None
+        self.loss_weights = {}
         self.shared_action = False
         self.device = None
 
@@ -185,6 +187,9 @@ class HPTModel(nn.Module):
         self.stems = nn.ModuleDict(self.stems)
         self.heads = nn.ModuleDict(self.heads)
         self.apply(self._init_weights)
+        for head in self.heads.values():
+            if hasattr(head, "reset_output_prior"):
+                head.reset_output_prior()
 
         # Shared action tokens
         if self.token_postprocessing == "action_token":
@@ -604,22 +609,40 @@ class HPTModel(nn.Module):
         auxiliary_action_loss = torch.tensor(0.0, device=self.device)
 
         if domain in self.heads:
-            action_loss += self.heads[domain].compute_loss(features, data)
+            action_loss += self._head_loss_weight(domain, "domain") * self.heads[
+                domain
+            ].compute_loss(features, data)
 
         if self.shared_action:
-            shared_action_loss += self.heads["shared"].compute_loss(features, data)
+            shared_action_loss += self._head_loss_weight(domain, "shared") * self.heads[
+                "shared"
+            ].compute_loss(features, data)
 
         if domain in self.auxiliary_ac_keys:
-            for key in self.auxiliary_ac_keys[domain]:
-                if f"{domain}_{key}" in self.heads:
-                    data["action"] = data[key]
-                    auxiliary_action_loss += self.heads[f"{domain}_{key}"].compute_loss(
-                        features, data
-                    )
+            original_action = data.get("action")
+            try:
+                for key in self.auxiliary_ac_keys[domain]:
+                    if f"{domain}_{key}" in self.heads:
+                        data["action"] = data[key]
+                        auxiliary_action_loss += self._head_loss_weight(
+                            domain, key
+                        ) * self.heads[f"{domain}_{key}"].compute_loss(features, data)
+            finally:
+                if original_action is not None:
+                    data["action"] = original_action
 
         total_loss = action_loss + shared_action_loss + auxiliary_action_loss
 
         return total_loss
+
+    def _head_loss_weight(self, domain, head_name):
+        domain_weights = self.loss_weights.get(domain, {})
+        if not isinstance(domain_weights, Mapping):
+            raise TypeError(f"loss_weights[{domain!r}] must be a mapping")
+        weight = float(domain_weights.get(head_name, 1.0))
+        if weight < 0:
+            raise ValueError("head loss weights must be non-negative")
+        return weight
 
     def compute_loss(self, batch):
         """
@@ -645,18 +668,27 @@ class HPTModel(nn.Module):
         shared_action_loss = torch.tensor(0.0, device=self.device)
         auxiliary_action_loss = torch.tensor(0.0, device=self.device)
         if domain in self.heads:
-            action_loss += self.heads[domain].compute_loss(features, data)
+            action_loss += self._head_loss_weight(domain, "domain") * self.heads[
+                domain
+            ].compute_loss(features, data)
 
         if self.shared_action:
-            shared_action_loss = self.heads["shared"].compute_loss(features, data)
+            shared_action_loss = self._head_loss_weight(domain, "shared") * self.heads[
+                "shared"
+            ].compute_loss(features, data)
 
         if domain in self.auxiliary_ac_keys:
-            for key in self.auxiliary_ac_keys[domain]:
-                if f"{domain}_{key}" in self.heads:
-                    data["action"] = data[key]
-                    auxiliary_action_loss += self.heads[f"{domain}_{key}"].compute_loss(
-                        features, data
-                    )
+            original_action = data.get("action")
+            try:
+                for key in self.auxiliary_ac_keys[domain]:
+                    if f"{domain}_{key}" in self.heads:
+                        data["action"] = data[key]
+                        auxiliary_action_loss += self._head_loss_weight(
+                            domain, key
+                        ) * self.heads[f"{domain}_{key}"].compute_loss(features, data)
+            finally:
+                if original_action is not None:
+                    data["action"] = original_action
 
         total_loss = action_loss + shared_action_loss + auxiliary_action_loss
         return total_loss
@@ -684,15 +716,30 @@ class HPTModel(nn.Module):
             features = (features, domain)
 
         if domain in self.heads:
-            action[domain] = self.heads[domain](features)
+            head = self.heads[domain]
+            action[domain] = (
+                head(features, data=data)
+                if getattr(head, "requires_data_for_inference", False)
+                else head(features)
+            )
 
         if self.shared_action:
-            action["shared"] = self.heads["shared"](features)
+            head = self.heads["shared"]
+            action["shared"] = (
+                head(features, data=data)
+                if getattr(head, "requires_data_for_inference", False)
+                else head(features)
+            )
 
         if domain in self.auxiliary_ac_keys:
             for key in self.auxiliary_ac_keys[domain]:
                 if f"{domain}_{key}" in self.heads:
-                    action[key] = self.heads[f"{domain}_{key}"](features)
+                    head = self.heads[f"{domain}_{key}"]
+                    action[key] = (
+                        head(features, data=data)
+                        if getattr(head, "requires_data_for_inference", False)
+                        else head(features)
+                    )
 
         return action
 
@@ -856,6 +903,7 @@ class HPT(Algo):
 
         model = HPTModel(**trunk)
         model.auxiliary_ac_keys = self.auxiliary_ac_keys
+        model.loss_weights = kwargs.get("loss_weights", {})
 
         self.multitask = kwargs.get("multitask", False)
         self.device = kwargs.get(
@@ -1270,6 +1318,39 @@ class HPT(Algo):
             data["action"] = batch[self.shared_ac_key]
         else:
             data["action"] = batch[ac_key]
+
+        embodiment_id = int(batch["embodiment"].reshape(-1)[0].item())
+        stats_by_key = self.norm_stats.norm_stats.get(embodiment_id, {})
+        mode = self.norm_stats.norm_mode
+        required = {
+            "quantile": ("quantile_1", "quantile_99"),
+            "minmax": ("min", "max"),
+            "zscore": ("mean", "std"),
+        }.get(mode, ())
+
+        action_stats = stats_by_key.get(self.shared_ac_key or ac_key)
+        if action_stats is not None:
+            data["_action_norm_mode"] = mode
+            for name in required:
+                data[f"_action_norm_{name}"] = torch.as_tensor(
+                    action_stats[name],
+                    device=data["action"].device,
+                    dtype=data["action"].dtype,
+                )
+
+        proprio_key = next(
+            (key for key in proprio_keys if key.rsplit(".", 1)[-1] == "joints"),
+            None,
+        )
+        proprio_stats = stats_by_key.get(proprio_key) if proprio_key else None
+        if proprio_stats is not None:
+            data["_proprio_norm_mode"] = mode
+            for name in required:
+                data[f"_proprio_norm_{name}"] = torch.as_tensor(
+                    proprio_stats[name],
+                    device=data["action"].device,
+                    dtype=data["action"].dtype,
+                )
         return data
 
     def _clone_batch(self, batch):

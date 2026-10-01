@@ -1,0 +1,52 @@
+import numpy as np
+
+from egomimic.rldb.embodiment.piper_clean_v2 import (
+    AriaGen2LeftCleanV2,
+    PiperJointCleanV2,
+)
+
+
+def _apply(batch, transforms):
+    for transform in transforms:
+        batch = transform.transform(batch)
+    return batch
+
+
+def _poses(length):
+    pose = np.zeros((length, 7), dtype=np.float32)
+    pose[:, 0] = np.linspace(0.0, 0.1, length)
+    pose[:, 3] = 1.0
+    return pose
+
+
+def test_piper_mixed_shapes_and_binary_gripper():
+    raw = np.zeros((30, 7), dtype=np.float32)
+    raw[:10, 6] = 100.0
+    batch = {
+        "right.cmd_ee_pose": _poses(30),
+        "right.cmd_joints": np.zeros((30, 6), dtype=np.float32),
+        "source.action": raw,
+        "right.obs_joints": np.zeros(6, dtype=np.float32),
+        "right.obs_gripper": np.array([0.1], dtype=np.float32),
+    }
+    result = _apply(batch, PiperJointCleanV2.get_transform_list(mixed=True))
+    assert result["actions_cartesian_pose"].shape == (100, 9)
+    assert result["actions_joints"].shape == (100, 7)
+    assert result["observations.state.joints"].shape == (7,)
+    assert set(np.unique(result["actions_joints"][:, 6])) <= {0.0, 1.0}
+
+
+def test_aria_shared_pose_shapes():
+    head = np.zeros(7, dtype=np.float32)
+    head[3] = 1.0
+    hand = _poses(30)
+    result = _apply(
+        {
+            "head_pose": head,
+            "left.obs_ee_pose": hand[0],
+            "left.action_ee_pose": hand,
+        },
+        AriaGen2LeftCleanV2.get_transform_list(),
+    )
+    assert result["observations.state.ee_pose"].shape == (9,)
+    assert result["actions_cartesian_pose"].shape == (100, 9)

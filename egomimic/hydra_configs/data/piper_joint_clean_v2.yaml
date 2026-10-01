@@ -1,0 +1,36 @@
+_target_: egomimic.pl_utils.pl_data_utils.MultiDataModuleWrapper
+train_datasets:
+  piper_right_arm:
+    _target_: egomimic.rldb.zarr.zarr_dataset_multi.MultiDataset._from_resolver
+    resolver:
+      _target_: egomimic.rldb.zarr.zarr_dataset_multi.LocalEpisodeResolver
+      folder_path: ${paths.dataset_dir}
+      key_map:
+        _target_: egomimic.rldb.embodiment.piper_clean_v2.PiperJointCleanV2.get_keymap
+        action_horizon: 30
+      transform_list:
+        _target_: egomimic.rldb.embodiment.piper_clean_v2.PiperJointCleanV2.get_transform_list
+    filters:
+      _target_: egomimic.rldb.filters.DatasetFilter
+      filter_lambdas:
+        - "lambda row: any(f'teddy_0912_{i}_' in row['episode_hash'] for i in range(1, 6))"
+    mode: total
+valid_datasets:
+  piper_right_arm:
+    _target_: egomimic.rldb.zarr.zarr_dataset_multi.MultiDataset._from_resolver
+    resolver: ${data.train_datasets.piper_right_arm.resolver}
+    filters:
+      _target_: egomimic.rldb.filters.DatasetFilter
+      filter_lambdas:
+        - "lambda row: 'teddy_0912_6_' in row['episode_hash']"
+    mode: total
+train_dataloader_params:
+  piper_right_arm:
+    batch_size: ${batch_size}
+    num_workers: ${num_workers}
+    pin_memory: true
+valid_dataloader_params:
+  piper_right_arm:
+    batch_size: ${batch_size}
+    num_workers: ${num_workers}
+    pin_memory: true

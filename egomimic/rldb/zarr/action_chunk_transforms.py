@@ -25,6 +25,7 @@ from egomimic.utils.pose_utils import (
     _interpolate_quat_wxyz,
     _interpolate_xyz,
     _matrix_to_xyz,
+    _matrix_to_xyz6d,
     _matrix_to_xyzwxyz,
     _matrix_to_xyzypr,
     _xyz_to_matrix,
@@ -133,6 +134,30 @@ class InterpolateLinear(Transform):
         batch[self.output_action_key] = _interpolate_linear(
             actions, self.new_chunk_length
         )
+        return batch
+
+
+class InterpolateStep(Transform):
+    """Resample a discrete action without inventing intermediate classes."""
+
+    def __init__(self, new_chunk_length, action_key, output_action_key, stride=1):
+        self.new_chunk_length = int(new_chunk_length)
+        self.action_key = action_key
+        self.output_action_key = output_action_key
+        self.stride = int(stride)
+        if self.new_chunk_length < 1 or self.stride < 1:
+            raise ValueError("new_chunk_length and stride must be positive")
+
+    def transform(self, batch):
+        actions = np.asarray(batch[self.action_key])[:: self.stride]
+        if actions.ndim != 2 or len(actions) == 0:
+            raise ValueError(
+                f"InterpolateStep expects non-empty (T,D), got {actions.shape}"
+            )
+        positions = np.linspace(0, len(actions) - 1, self.new_chunk_length)
+        indices = np.floor(positions).astype(np.int64)
+        indices[-1] = len(actions) - 1
+        batch[self.output_action_key] = actions[indices]
         return batch
 
 
@@ -386,6 +411,29 @@ class XYZWXYZ_to_XYZYPR(Transform):
                     f"XYZWXYZ_to_XYZYPR expects key '{key}' to have shape (7,) "
                     f"or (T, 7), got {value.shape}"
                 )
+        return batch
+
+
+class XYZWXYZ_to_XYZ6D(Transform):
+    """Convert xyz+quaternion actions to continuous xyz+rotation6D."""
+
+    def __init__(self, keys):
+        self.keys = list(keys)
+
+    def transform(self, batch):
+        for key in self.keys:
+            value = np.asarray(batch[key])
+            single = value.ndim == 1
+            if (single and value.shape != (7,)) or (
+                not single and (value.ndim != 2 or value.shape[-1] != 7)
+            ):
+                raise ValueError(
+                    f"XYZWXYZ_to_XYZ6D expects (7,) or (T,7), got {value.shape}"
+                )
+            converted = _matrix_to_xyz6d(
+                _xyzwxyz_to_matrix(value[None] if single else value)
+            )
+            batch[key] = converted[0] if single else converted
         return batch
 
 

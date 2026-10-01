@@ -129,6 +129,34 @@ def _xyzypr_to_matrix(xyzypr: np.ndarray) -> np.ndarray:
     return mats
 
 
+def _matrix_to_xyz6d(mats: np.ndarray) -> np.ndarray:
+    """Convert SE(3) matrices to xyz plus the first two rotation columns."""
+    if mats.ndim != 3 or mats.shape[-2:] != (4, 4):
+        raise ValueError(f"Expected (B, 4, 4) array, got shape {mats.shape}")
+    mats = np.asarray(mats)
+    dtype = mats.dtype if np.issubdtype(mats.dtype, np.floating) else np.float64
+    return np.concatenate(
+        (mats[:, :3, 3], mats[:, :3, 0], mats[:, :3, 1]), axis=-1
+    ).astype(dtype, copy=False)
+
+
+def _xyz6d_to_matrix(xyz6d: np.ndarray) -> np.ndarray:
+    """Convert xyz plus Zhou 6D rotation columns to SE(3) matrices."""
+    if xyz6d.ndim != 2 or xyz6d.shape[-1] != 9:
+        raise ValueError(f"Expected (B, 9) array, got shape {xyz6d.shape}")
+    values = np.asarray(xyz6d)
+    dtype = values.dtype if np.issubdtype(values.dtype, np.floating) else np.float64
+    c1 = values[:, 3:6]
+    c1 = c1 / np.maximum(np.linalg.norm(c1, axis=-1, keepdims=True), 1e-8)
+    c2 = values[:, 6:9] - np.sum(c1 * values[:, 6:9], axis=-1, keepdims=True) * c1
+    c2 = c2 / np.maximum(np.linalg.norm(c2, axis=-1, keepdims=True), 1e-8)
+    c3 = np.cross(c1, c2)
+    mats = np.broadcast_to(np.eye(4, dtype=dtype), (len(values), 4, 4)).copy()
+    mats[:, :3, :3] = np.stack((c1, c2, c3), axis=-1)
+    mats[:, :3, 3] = values[:, :3]
+    return mats
+
+
 def _matrix_to_xyzwxyz(mats: np.ndarray) -> np.ndarray:
     """
     args:
@@ -256,11 +284,12 @@ def _split_keypoints(keypoints, wrist_in_data: bool = False, is_quat: bool = Tru
         right_keypoints = keypoints[..., 63:]
         return left_keypoints, right_keypoints
 
-from scipy.spatial.transform import Rotation
-import scipy
 
+import scipy  # noqa: E402
+from scipy.spatial.transform import Rotation  # noqa: E402
 
 # ---- moved from egomimicUtils.py (code unchanged) ----
+
 
 def ee_pose_to_cam_frame(ee_pose_base, T_cam_base):
     """
@@ -274,6 +303,7 @@ def ee_pose_to_cam_frame(ee_pose_base, T_cam_base):
 
     ee_pose_grip_cam = np.linalg.inv(T_cam_base) @ ee_pose_base.T
     return ee_pose_grip_cam.T[:, :3]
+
 
 def base_frame_to_cam_frame(base_frame, T_cam_base):
     """
@@ -292,6 +322,7 @@ def base_frame_to_cam_frame(base_frame, T_cam_base):
     ypr = Rotation.from_matrix(cam_frame[:, :3, :3]).as_euler("ZYX", degrees=False)
     return np.concatenate([xyz, ypr], axis=1)
 
+
 def cam_frame_to_base_frame(cam_frame, T_cam_base):
     """
     cam_frame: (N, 6) (x, y, z, yaw, pitch, roll)
@@ -308,6 +339,7 @@ def cam_frame_to_base_frame(cam_frame, T_cam_base):
     xyz = base_frame[:, :3, 3]
     ypr = Rotation.from_matrix(base_frame[:, :3, :3]).as_euler("ZYX", degrees=False)
     return np.concatenate([xyz, ypr], axis=1)
+
 
 def pose_to_transform(pose):
     """
@@ -340,6 +372,7 @@ def pose_to_transform(pose):
     T[:3, 3] = [x, y, z]
     return T
 
+
 def transform_to_pose(T):
     """
     Convert a 4x4 homogeneous transform back to a 6D pose [x, y, z, yaw, pitch, roll].
@@ -361,6 +394,7 @@ def transform_to_pose(T):
         roll = np.arctan2(-R[0, 1], R[1, 1])
     return np.array([x, y, z, yaw, pitch, roll])
 
+
 def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
     """
     camera frame 3d coordinates to pixels in camera frame
@@ -377,6 +411,7 @@ def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
     # print("2d pos cam frame: ", px_val)
 
     return px_val.T
+
 
 def interpolate_arr_euler(v: np.ndarray, seq_length: int) -> np.ndarray:
     """
@@ -437,6 +472,7 @@ def interpolate_arr_euler(v: np.ndarray, seq_length: int) -> np.ndarray:
 
     return np.stack(outputs, axis=0)  # (B, seq_length, D)
 
+
 def interpolate_arr(v, seq_length):
     """
     v: (B, T, D)
@@ -456,6 +492,7 @@ def interpolate_arr(v, seq_length):
         interpolated.append(interp(np.linspace(0, 1, seq_length)))
 
     return np.array(interpolated)
+
 
 def get_vector_from_yaw_pitch(
     yaw_rads: float,

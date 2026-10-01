@@ -1,0 +1,20 @@
+defaults:
+  - train_piper
+  - override data: piper_joint_clean_v2
+  - override model: hpt_piper_joint_residual_clean_v2
+  - _self_
+
+name: piper_a_residual_clean_v2
+action_horizon: 30
+batch_size: 8
+trainer:
+  max_steps: 30000
+  limit_train_batches: 2500
+  limit_val_batches: 50
+  check_val_every_n_epoch: 1
+callbacks:
+  checkpoint:
+    monitor: Valid/piper_right_arm_loss
+    filename: step_{step}
+  final_checkpoint:
+    _target_: egomimic.pl_utils.save_final.SaveFinalCheckpoint
