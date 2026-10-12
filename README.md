@@ -66,10 +66,8 @@ Download the AWS cli
 Set up your AWS keys to access our cloud storage
 ```
 aws configure
-AccessKeyId: AKIAYDKH4BNCAYHE5NG2
-SecretAccessKey: rGjT6NSh55YiB9MC9EyNGpVy8qcaTn4i19OmkhRW
-Default region name: us-east-2
-Default output format:
+# Enter credentials issued to you by the project administrator.
+# Do not store credentials in this repository.
 ./egomimic/utils/aws/setup_secret.sh
 ```
 `setup_secret.sh` will allow your current env to download data from cloudflare.
@@ -136,6 +134,11 @@ Basic training run (robot BC)...
 python egomimic/trainHydra.py --config-name=train_zarr_cartesian
 ```
 For full instructions on training see [``training.md``](./training.md)
+
+For the Piper Clean V2 A/B experiments developed in this fork, see
+[``docs/piper_clean_v2_training.md``](./docs/piper_clean_v2_training.md). The
+[architecture note](./docs/piper_model_architecture_evolution.md) explains the
+model and action-contract changes that led to the deployable joint controller.
 
 ### Converting your own data
 See [``embodiment_tutorial.ipynb``](./egomimic/scripts/tutorials/embodiment_tutorial.ipynb) as reference to write a conversion script for your own data.
