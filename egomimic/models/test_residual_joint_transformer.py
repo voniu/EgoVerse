@@ -1,10 +1,13 @@
 import torch
 
-from egomimic.models.residual_joint_policy_clean_v2 import ResidualJointPolicyCleanV2
+from egomimic.models.residual_joint_policy_clean_v2 import (
+    ResidualJointPolicyCleanV2,
+)
+from egomimic.models.residual_joint_transformer import ResidualJointTransformer
 
 
 def _policy():
-    return ResidualJointPolicyCleanV2(
+    return ResidualJointTransformer(
         action_horizon=100,
         control_horizon=30,
         infer_ac_dims={"piper_left_arm": 7},
@@ -67,14 +70,14 @@ def test_loss_is_finite_and_reaches_decoder():
     assert torch.isfinite(policy.joint_residual_head.weight.grad).all()
     assert torch.isfinite(policy.gripper_head.weight.grad).all()
     assert set(policy.last_loss_components) == {
-        "clean_v2_joint_position_loss",
-        "clean_v2_joint_delta_loss",
-        "clean_v2_joint_acceleration_loss",
-        "clean_v2_joint_jerk_loss",
-        "clean_v2_fk_position_loss",
-        "clean_v2_fk_rotation_loss",
-        "clean_v2_gripper_bce",
-        "clean_v2_total_loss",
+        "residual_joint_position_loss",
+        "residual_joint_delta_loss",
+        "residual_joint_acceleration_loss",
+        "residual_joint_jerk_loss",
+        "residual_joint_fk_position_loss",
+        "residual_joint_fk_rotation_loss",
+        "residual_joint_gripper_bce",
+        "residual_joint_total_loss",
     }
 
 
@@ -87,15 +90,19 @@ def test_action_and_proprio_normalizers_are_not_interchanged():
     torch.testing.assert_close(current[0, 0], torch.tensor(1.0), atol=1e-6, rtol=0)
 
 
-def test_clean_v2_contract_identity_and_determinism():
+def test_residual_joint_contract_identity_and_determinism():
     policy = _policy().eval()
-    assert policy.contract_name == "piper_residual_joint_clean_v2"
+    assert policy.contract_name == "piper_residual_joint_transformer"
     assert policy.contract_version == 2
     features = torch.randn(1, 8, 16)
     data = _data(batch=1)
     first = policy((features, "piper_left_arm"), data=data)
     second = policy((features, "piper_left_arm"), data=data)
     torch.testing.assert_close(first, second, atol=0, rtol=0)
+
+
+def test_pre_rename_checkpoint_import_resolves_to_current_head():
+    assert ResidualJointPolicyCleanV2 is ResidualJointTransformer
 
 
 def test_contract_rejects_wrong_action_width():
@@ -107,13 +114,16 @@ def test_contract_rejects_wrong_action_width():
     except ValueError as error:
         assert "action contract mismatch" in str(error)
     else:
-        raise AssertionError("Clean V2 accepted a 6D action without gripper")
+        raise AssertionError(
+            "Residual Joint Transformer accepted a 6D action without gripper"
+        )
 
 
 if __name__ == "__main__":
     test_initial_prediction_is_persistence_with_binary_open_gripper()
     test_loss_is_finite_and_reaches_decoder()
     test_action_and_proprio_normalizers_are_not_interchanged()
-    test_clean_v2_contract_identity_and_determinism()
+    test_residual_joint_contract_identity_and_determinism()
+    test_pre_rename_checkpoint_import_resolves_to_current_head()
     test_contract_rejects_wrong_action_width()
-    print("ResidualJointPolicy Clean V2 tests passed")
+    print("ResidualJointTransformer tests passed")

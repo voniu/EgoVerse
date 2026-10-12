@@ -135,8 +135,8 @@ python egomimic/trainHydra.py --config-name=train_zarr_cartesian
 ```
 For full instructions on training see [``training.md``](./training.md)
 
-For the Piper Clean V2 A/B experiments developed in this fork, see
-[``docs/piper_clean_v2_training.md``](./docs/piper_clean_v2_training.md). The
+For the Piper Residual Joint Transformer A/B experiments developed in this fork, see
+[``docs/piper_residual_joint_transformer_training.md``](./docs/piper_residual_joint_transformer_training.md). The
 [architecture note](./docs/piper_model_architecture_evolution.md) explains the
 model and action-contract changes that led to the deployable joint controller.
 

@@ -1,12 +1,12 @@
-# 从初版 EgoVerse 适配到 Clean V2：Piper 模型结构与数据流演进
+# 从初版 EgoVerse 适配到 Residual Joint Transformer：Piper 模型结构与数据流演进
 
 本文解释本项目中“最初的模型”和“目前的模型”到底差在哪里。这里需要先澄清一个容易混淆的历史事实：我们的起点不是一个模型，而是两个连续阶段。
 
 1. **原始 Cartesian 基线**：沿用 EgoVerse/HPT 的基本思路，由策略预测末端位姿，再通过 IK 得到关节角。
 2. **第一版 Joint Head**：保留 HPT 表征，在下游增加 Piper 专用关节头，先后尝试 MLP 与 Flow Matching，绕过部署时的 IK。
-3. **目前的 Clean V2**：仍然保留共享 HPT 和跨域 9D pose 监督，但将真正部署的 Piper head 改成“当前关节状态条件下的 residual Transformer”，并重新定义时间轴、夹爪标签和物理损失。
+3. **目前的 Residual Joint Transformer**：仍然保留共享 HPT 和跨域 9D pose 监督，但将真正部署的 Piper head 改成“当前关节状态条件下的 residual Transformer”，并重新定义时间轴、夹爪标签和物理损失。
 
-所以，Clean V2 并不是简单地把 MLP 换成 Transformer。它改变的是策略输出问题本身：第一版在问“未来每一帧的绝对关节角是什么”，Clean V2 在问“从当前真实关节状态出发，未来 1 秒应当产生怎样的平滑关节残差，并在什么时候切换夹爪状态”。
+所以，Residual Joint Transformer 并不是简单地把 MLP 换成 Transformer。它改变的是策略输出问题本身：第一版在问“未来每一帧的绝对关节角是什么”，Residual Joint Transformer 在问“从当前真实关节状态出发，未来 1 秒应当产生怎样的平滑关节残差，并在什么时候切换夹爪状态”。
 
 ---
 
@@ -26,7 +26,7 @@ flowchart LR
     J1 --> O1[绝对关节 chunk<br/>H x 7]
     O1 --> R1[直接关节控制]
 
-    S2[Clean V2<br/>RGB + 当前 q + gripper] --> H2[共享 HPT 表征]
+    S2[Residual Joint Transformer<br/>RGB + 当前 q + gripper] --> H2[共享 HPT 表征]
     H2 --> P2[共享 9D Pose FM Head<br/>人机几何表征]
     H2 --> J2[Residual Transformer<br/>30 learned queries]
     S2 --> J2
@@ -52,7 +52,7 @@ flowchart LR
 |---|---:|---:|---|
 | D435IF 主视角 RGB | `[B,3,480,640]` | `[B,49,256]` | Resize 到 `224×224` 后经 ResNet18，`7×7=49` 个空间 token |
 | D405 腕部 RGB | `[B,3,480,640]` | `[B,49,256]` | 与主视角同构，但属于 Piper 域专用模态 |
-| 状态 | `[B,7]` | 256 维模态 token | 初版 Cartesian 使用 EE pose + gripper；Joint Head 与 Clean V2 使用 6 joints + gripper |
+| 状态 | `[B,7]` | 256 维模态 token | 初版 Cartesian 使用 EE pose + gripper；Joint Head 与 Residual Joint Transformer 使用 6 joints + gripper |
 
 每个模态随后经过 cross-attention stem。配置中的 `crossattn_latent=16` 表示每种模态被组织成 16 个、每个 256 维的 latent token。HPT trunk 使用：
 
@@ -66,7 +66,7 @@ flowchart LR
 
 B 组增加 Human/Aria 域：
 
-| 模态 | 初版 | Clean V2 |
+| 模态 | 初版 | Residual Joint Transformer |
 |---|---:|---:|
 | Ego RGB | `[B,3,480,640]` | 相同 |
 | 当前左手状态 | `[B,6] = xyz + YPR` | `[B,9] = xyz + rot6D` |
@@ -193,7 +193,7 @@ x_t=(1-t)A+t\epsilon,\qquad u_t=\epsilon-A,
 - Piper joint head；
 - Human Cartesian head。
 
-但 Piper 与 Human 的 Cartesian 输出维度和 head 仍是分开的，它们主要共享 encoder、stem 和 HPT trunk。第一版没有显式 loss weight 时，A 的 robot loss 近似为 `pose + joint`；B 的两个 domain loss 再取平均，等效地改变了 robot joint loss 在总目标中的相对权重。这也是后来 Clean V2 专门匹配 A/B 目标权重的原因。
+但 Piper 与 Human 的 Cartesian 输出维度和 head 仍是分开的，它们主要共享 encoder、stem 和 HPT trunk。第一版没有显式 loss weight 时，A 的 robot loss 近似为 `pose + joint`；B 的两个 domain loss 再取平均，等效地改变了 robot joint loss 在总目标中的相对权重。这也是后来 Residual Joint Transformer 专门匹配 A/B 目标权重的原因。
 
 ```mermaid
 flowchart LR
@@ -211,9 +211,9 @@ flowchart LR
 
 ---
 
-## 5. Clean V2：从“绝对动作生成”改为“状态条件残差控制”
+## 5. Residual Joint Transformer：从“绝对动作生成”改为“状态条件残差控制”
 
-Clean V2 沿用相同 HPT backbone，但把 deployable joint head 重写为 residual Transformer decoder。
+Residual Joint Transformer 沿用相同 HPT backbone，但把 deployable joint head 重写为 residual Transformer decoder。
 
 ### 5.1 当前 head 的内部结构
 
@@ -262,7 +262,7 @@ flowchart TB
 
 ### 5.2 为什么同时存在 30 点和 100 点
 
-原始机器人数据是 30 Hz，Clean V2 学习 30 个原生控制点，即 1 秒动作。为了与 Human/Piper 共享的 9D pose head 以及现有 HPT action 接口对齐，训练管线又把动作表示插值成 100 点。
+原始机器人数据是 30 Hz，Residual Joint Transformer 学习 30 个原生控制点，即 1 秒动作。为了与 Human/Piper 共享的 9D pose head 以及现有 HPT action 接口对齐，训练管线又把动作表示插值成 100 点。
 
 ```mermaid
 flowchart LR
@@ -276,7 +276,7 @@ flowchart LR
 
 ### 5.3 当前共享 pose head
 
-Clean V2 将人机共享动作统一为：
+Residual Joint Transformer 将人机共享动作统一为：
 
 \[
 p=[x,y,z,r_1,\ldots,r_6]\in\mathbb{R}^{9},
@@ -310,7 +310,7 @@ flowchart LR
 
 ## 6. Loss 从“点对点误差”变成“轨迹与物理误差”
 
-Clean V2 joint loss 为：
+Residual Joint Transformer joint loss 为：
 
 \[
 \begin{aligned}
@@ -349,7 +349,7 @@ J4 得到更高权重，是因为腕部姿态误差对抓取朝向影响明显�
 
 ### 6.1 A/B 的总损失保持可比
 
-Clean V2 显式匹配 A/B 的机器人目标：
+Residual Joint Transformer 显式匹配 A/B 的机器人目标：
 
 \[
 \mathcal L_A=\mathcal L_{joint}+0.5\mathcal L_{pose}^{robot},
@@ -394,7 +394,7 @@ flowchart TB
 
 ## 8. 初版与当前模型的直接对照
 
-| 维度 | 第一版 Joint Head | 当前 Clean V2 |
+| 维度 | 第一版 Joint Head | 当前 Residual Joint Transformer |
 |---|---|---|
 | Backbone | ResNet18 + stems + 16-block HPT | 相同核心骨架 |
 | HPT action memory | 30×256 | 64×256 |
@@ -420,7 +420,7 @@ flowchart TB
 
 第二，Transformer decoder 为每个控制时刻保留独立 query，并允许 30 个时间位置共同读取同一 HPT memory。相比 flatten MLP，它保留了明确的时序槽位；相比 FM，它不需要从噪声积分，也没有 seed 引入的部署方差。
 
-第三，轨迹导数 loss 把“平滑”放进训练目标。部署端的 step clipping 只能在预测后限制危险跳变，无法教会模型生成连续轨迹；Clean V2 从训练阶段就惩罚速度、加速度和 jerk 错误。
+第三，轨迹导数 loss 把“平滑”放进训练目标。部署端的 step clipping 只能在预测后限制危险跳变，无法教会模型生成连续轨迹；Residual Joint Transformer 从训练阶段就惩罚速度、加速度和 jerk 错误。
 
 第四，二值夹爪将问题改成事件预测。pick-and-place 中夹爪的核心语义是 open/closed 与切换时机，并不要求复现示范中的每毫米开度。
 
@@ -430,7 +430,7 @@ flowchart TB
 
 ---
 
-## 10. 当前起始抖动不是 Clean V2 网络结构本身的问题
+## 10. 当前起始抖动不是 Residual Joint Transformer 网络结构本身的问题
 
 近期日志显示，训练/SDK 坐标允许 J2 到 `−2.1°`、J3 到 `+2.0°`，而 URDF 与驱动器 nominal limits 分别是：
 
@@ -445,7 +445,7 @@ J3: −170° … 0°
 
 ```mermaid
 flowchart LR
-    M[Clean V2 prediction<br/>policy coordinates] --> C[Coordinate conversion<br/>currently assumed identity]
+    M[Residual Joint Transformer prediction<br/>policy coordinates] --> C[Coordinate conversion<br/>currently assumed identity]
     C --> L[URDF / firmware limit check]
     L --> SDK[Piper SDK command]
 ```
@@ -464,7 +464,7 @@ flowchart LR
 
 > 看图并一次性预测未来所有绝对关节角。
 
-目前 Clean V2 学习的是：
+目前 Residual Joint Transformer 学习的是：
 
 > 基于当前真实关节状态和视觉语义，用 30 个时序 query 预测一段有界、平滑、满足任务空间约束的关节残差，同时独立判断夹爪开关；Human 数据只通过共享的 9D 几何 head 改善表征。
 
@@ -476,9 +476,10 @@ flowchart LR
 
 - 第一版 MLP joint head：[`egomimic/models/mlp_policy.py`](../egomimic/models/mlp_policy.py)
 - 第一版 FM head：[`egomimic/models/fm_policy.py`](../egomimic/models/fm_policy.py)
-- Clean V2 residual joint head：[`egomimic/models/residual_joint_policy_clean_v2.py`](../egomimic/models/residual_joint_policy_clean_v2.py)
-- Clean V2 mixed-domain wrapper：[`egomimic/algo/hpt_mixed_clean_v2.py`](../egomimic/algo/hpt_mixed_clean_v2.py)
-- Clean V2 data transforms：[`egomimic/rldb/embodiment/piper_clean_v2.py`](../egomimic/rldb/embodiment/piper_clean_v2.py)
-- A 配置：[`egomimic/hydra_configs/model/hpt_piper_joint_residual_clean_v2.yaml`](../egomimic/hydra_configs/model/hpt_piper_joint_residual_clean_v2.yaml)
-- B 配置：[`egomimic/hydra_configs/model/hpt_piper_human_residual_clean_v2.yaml`](../egomimic/hydra_configs/model/hpt_piper_human_residual_clean_v2.yaml)
+- Residual Joint Transformer head：[`egomimic/models/residual_joint_transformer.py`](../egomimic/models/residual_joint_transformer.py)
+- Keyed normalization variant：[`egomimic/models/residual_joint_transformer_keyed.py`](../egomimic/models/residual_joint_transformer_keyed.py)
+- HPT integration：[`egomimic/algo/hpt_residual_joint.py`](../egomimic/algo/hpt_residual_joint.py)
+- Data transforms：[`egomimic/rldb/embodiment/piper_residual_joint.py`](../egomimic/rldb/embodiment/piper_residual_joint.py)
+- A 配置：[`egomimic/hydra_configs/model/hpt_piper_joint_residual_transformer.yaml`](../egomimic/hydra_configs/model/hpt_piper_joint_residual_transformer.yaml)
+- B 配置：[`egomimic/hydra_configs/model/hpt_piper_human_residual_transformer.yaml`](../egomimic/hydra_configs/model/hpt_piper_human_residual_transformer.yaml)
 - 真机部署：[`egomimic/robot/piper/rollout_joint.py`](../egomimic/robot/piper/rollout_joint.py)

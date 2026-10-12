@@ -1,9 +1,9 @@
 defaults:
-  - hpt_piper_joint_residual_clean_v2
+  - hpt_piper_joint_residual_transformer
   - _self_
 
 robomimic_model:
-  _target_: egomimic.algo.hpt_mixed_clean_v2.HPTMixedCleanV2
+  _target_: egomimic.algo.hpt_residual_joint.HPTResidualJoint
   6dof: true
   domains: [piper_right_arm, human_left_arm]
   ac_keys:
@@ -68,7 +68,7 @@ robomimic_model:
         mlp_layers: 4
         mlp_ratio: 4
     piper_right_arm_actions_joints:
-      _target_: egomimic.models.residual_joint_policy_mixed_clean_v2.ResidualJointPolicyMixedCleanV2
+      _target_: egomimic.models.residual_joint_transformer_keyed.KeyedResidualJointTransformer
       action_horizon: 100
       control_horizon: 30
       joint_dims: 6

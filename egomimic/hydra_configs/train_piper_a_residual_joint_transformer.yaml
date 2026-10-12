@@ -1,10 +1,10 @@
 defaults:
-  - train_piper_human
-  - override data: piper_human_clean_v2
-  - override model: hpt_piper_human_residual_clean_v2
+  - train_piper
+  - override data: piper_joint_residual
+  - override model: hpt_piper_joint_residual_transformer
   - _self_
 
-name: piper_b_mixed_clean_v2
+name: piper_a_residual_joint_transformer
 action_horizon: 30
 batch_size: 8
 trainer:

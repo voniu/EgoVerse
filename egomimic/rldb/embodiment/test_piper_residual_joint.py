@@ -1,8 +1,8 @@
 import numpy as np
 
-from egomimic.rldb.embodiment.piper_clean_v2 import (
-    AriaGen2LeftCleanV2,
-    PiperJointCleanV2,
+from egomimic.rldb.embodiment.piper_residual_joint import (
+    AriaLeftPoseResidualJoint,
+    PiperResidualJoint,
 )
 
 
@@ -29,7 +29,7 @@ def test_piper_mixed_shapes_and_binary_gripper():
         "right.obs_joints": np.zeros(6, dtype=np.float32),
         "right.obs_gripper": np.array([0.1], dtype=np.float32),
     }
-    result = _apply(batch, PiperJointCleanV2.get_transform_list(mixed=True))
+    result = _apply(batch, PiperResidualJoint.get_transform_list(mixed=True))
     assert result["actions_cartesian_pose"].shape == (100, 9)
     assert result["actions_joints"].shape == (100, 7)
     assert result["observations.state.joints"].shape == (7,)
@@ -46,7 +46,7 @@ def test_aria_shared_pose_shapes():
             "left.obs_ee_pose": hand[0],
             "left.action_ee_pose": hand,
         },
-        AriaGen2LeftCleanV2.get_transform_list(),
+        AriaLeftPoseResidualJoint.get_transform_list(),
     )
     assert result["observations.state.ee_pose"].shape == (9,)
     assert result["actions_cartesian_pose"].shape == (100, 9)

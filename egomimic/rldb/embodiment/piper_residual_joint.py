@@ -1,4 +1,4 @@
-"""Clean V2 representations for residual joint control and human cotraining."""
+"""Residual Joint Transformer representations for residual joint control and human cotraining."""
 
 import numpy as np
 
@@ -29,7 +29,7 @@ class BinaryGripperIntent(Transform):
         return batch
 
 
-class PiperJointCleanV2(Embodiment):
+class PiperResidualJoint(Embodiment):
     """Piper state plus calibrated joint command and binary gripper intent."""
 
     @classmethod
@@ -138,7 +138,7 @@ class CurrentCameraPoses9D(Transform):
         return batch
 
 
-class AriaGen2LeftCleanV2(Embodiment):
+class AriaLeftPoseResidualJoint(Embodiment):
     """Aria left-hand state/action in the shared 9D camera-frame pose space."""
 
     @classmethod

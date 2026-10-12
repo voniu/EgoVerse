@@ -15,12 +15,12 @@ EXTRA_OVERRIDES=("$@")
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../../../.." && pwd)
 CODE=${PIPER_CODE:-$REPO_ROOT}
-WORK_ROOT=${PIPER_WORK_ROOT:-$CODE/.local_calibration/hpc_clean_v2}
+WORK_ROOT=${PIPER_WORK_ROOT:-$CODE/.local_calibration/hpc_residual_joint_transformer}
 PIPER_DATA_ARCHIVE=${PIPER_DATA_ARCHIVE:-$WORK_ROOT/data/piper_zarr.tar}
 ARIA_DATA_ARCHIVE=${ARIA_DATA_ARCHIVE:-$WORK_ROOT/data/aria_left_aligned.tar}
 case "$GROUP" in
-  a) CONFIG=train_piper_a_residual_clean_v2 ;;
-  b) CONFIG=train_piper_b_mixed_clean_v2 ;;
+  a) CONFIG=train_piper_a_residual_joint_transformer ;;
+  b) CONFIG=train_piper_b_residual_joint_transformer ;;
   *) echo "GROUP must be a or b" >&2; exit 2 ;;
 esac
 
@@ -34,12 +34,12 @@ export PYTHONPATH="$CODE:${PYTHONPATH:-}"
 export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 MPLBACKEND=Agg
 export TORCH_HOME=${TORCH_HOME:-$WORK_ROOT/assets}
 SCRATCH_BASE=${SLURM_TMPDIR:-${PIPER_SCRATCH_ROOT:-/tmp}}
-export TMPDIR=$SCRATCH_BASE/piper-clean-v2-$GROUP-${SLURM_JOB_ID:-manual}
+export TMPDIR=$SCRATCH_BASE/piper-residual-joint-transformer-$GROUP-${SLURM_JOB_ID:-manual}
 export MPLCONFIGDIR="$TMPDIR/mpl"
 
 ROBOT=$TMPDIR/robot
 HUMAN=$TMPDIR/human
-RUN=${PIPER_RUN_DIR:-$WORK_ROOT/runs/clean-v2-$GROUP-${SLURM_JOB_ID:-manual}}
+RUN=${PIPER_RUN_DIR:-$WORK_ROOT/runs/residual-joint-transformer-$GROUP-${SLURM_JOB_ID:-manual}}
 mkdir -p "$ROBOT" "$HUMAN" "$MPLCONFIGDIR" "$RUN"
 tar -xf "$PIPER_DATA_ARCHIVE" -C "$ROBOT"
 

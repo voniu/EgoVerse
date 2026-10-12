@@ -1,5 +1,5 @@
 defaults:
-  - piper_joint_clean_v2
+  - piper_joint_residual
   - _self_
 
 train_datasets:
@@ -15,10 +15,10 @@ train_datasets:
       _target_: egomimic.rldb.zarr.zarr_dataset_multi.LocalEpisodeResolver
       folder_path: ${hydra:runtime.cwd}/.local_calibration/aria_gen2_aligned
       key_map:
-        _target_: egomimic.rldb.embodiment.piper_clean_v2.AriaGen2LeftCleanV2.get_keymap
+        _target_: egomimic.rldb.embodiment.piper_residual_joint.AriaLeftPoseResidualJoint.get_keymap
         action_horizon: 30
       transform_list:
-        _target_: egomimic.rldb.embodiment.piper_clean_v2.AriaGen2LeftCleanV2.get_transform_list
+        _target_: egomimic.rldb.embodiment.piper_residual_joint.AriaLeftPoseResidualJoint.get_transform_list
     mode: train
     valid_ratio: 0.1
 valid_datasets:

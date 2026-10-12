@@ -2,9 +2,9 @@ import types
 
 import torch
 
-from egomimic.algo.hpt_mixed_clean_v2 import attach_keyed_normalization_metadata
-from egomimic.models.residual_joint_policy_mixed_clean_v2 import (
-    ResidualJointPolicyMixedCleanV2,
+from egomimic.algo.hpt_residual_joint import attach_keyed_normalization_metadata
+from egomimic.models.residual_joint_transformer_keyed import (
+    KeyedResidualJointTransformer,
 )
 
 
@@ -14,7 +14,7 @@ def _quantile_normalize(values, low, high):
 
 def _head_and_data():
     torch.manual_seed(3)
-    head = ResidualJointPolicyMixedCleanV2(
+    head = KeyedResidualJointTransformer(
         action_horizon=8,
         control_horizon=4,
         infer_ac_dims={"piper_left_arm": 7},

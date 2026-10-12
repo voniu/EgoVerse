@@ -32,7 +32,10 @@ class JointPolicy:
         self.head_name = getattr(self.head, "contract_name", None) or (
             "FM" if self.is_flow else "MLP"
         )
-        self.binary_gripper = self.head_name == "piper_residual_joint_clean_v2"
+        self.binary_gripper = self.head_name in {
+            "piper_residual_joint_transformer",
+            "piper_residual_joint_clean_v2",
+        }
         self.flow_seed = flow_seed
         self.model_horizon = self.head.action_horizon
         self.horizon = getattr(self.head, "control_horizon", self.model_horizon)

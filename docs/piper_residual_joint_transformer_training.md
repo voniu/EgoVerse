@@ -1,4 +1,4 @@
-# Piper Clean V2 training guide
+# Piper Residual Joint Transformer training guide
 
 This guide is the reproducible entry point for the Piper experiments in this
 fork. It covers the current A/B comparison:
@@ -12,6 +12,10 @@ fork. It covers the current A/B comparison:
 
 See [piper_model_architecture_evolution.md](piper_model_architecture_evolution.md)
 for the model and loss definitions.
+
+Checkpoints produced before this strategy-based rename remain loadable through
+small compatibility import modules. New experiments and documentation use only
+the `residual_joint_transformer` names.
 
 ## 1. Environment
 
@@ -34,7 +38,7 @@ Training reads a directory containing one EgoVerse Zarr store per episode. Do
 not commit datasets, checkpoints, camera calibration, or rollout logs; the
 repository ignores `.zarr`, `.local_calibration`, and common model artifacts.
 
-The Piper Clean V2 loader expects these logical fields:
+The Piper Residual Joint Transformer loader expects these logical fields:
 
 | Field | Shape used by the model | Unit / meaning |
 |---|---:|---|
@@ -56,10 +60,10 @@ python -m egomimic.scripts.piper_process.lerobot_to_zarr \
   --wrist-intrinsics /calibration/d405.json
 ```
 
-After conversion, add the Clean V2 open/closed target once:
+After conversion, add the Residual Joint Transformer open/closed target once:
 
 ```bash
-python -m egomimic.scripts.piper_process.add_binary_gripper_clean_v2 \
+python -m egomimic.scripts.piper_process.add_binary_gripper_residual_joint \
   /data/piper_zarr
 ```
 
@@ -90,12 +94,12 @@ evaluate policy quality.
 
 ```bash
 python -m egomimic.trainHydra \
-  --config-name train_piper_a_residual_clean_v2 \
+  --config-name train_piper_a_residual_joint_transformer \
   paths.dataset_dir=/data/piper_zarr \
   trainer.max_steps=20 \
   trainer.limit_train_batches=20 \
   trainer.limit_val_batches=2 \
-  hydra.run.dir=.local_calibration/runs/clean-v2-a-smoke
+  hydra.run.dir=.local_calibration/runs/residual-joint-transformer-a-smoke
 ```
 
 Start the full A run from scratch while reusing only the smoke run's
@@ -103,20 +107,20 @@ normalization statistics:
 
 ```bash
 python -m egomimic.trainHydra \
-  --config-name train_piper_a_residual_clean_v2 \
+  --config-name train_piper_a_residual_joint_transformer \
   paths.dataset_dir=/data/piper_zarr \
-  norm_stats.precomputed_norm_path=.local_calibration/runs/clean-v2-a-smoke/norm_stats \
-  hydra.run.dir=.local_calibration/runs/clean-v2-a
+  norm_stats.precomputed_norm_path=.local_calibration/runs/residual-joint-transformer-a-smoke/norm_stats \
+  hydra.run.dir=.local_calibration/runs/residual-joint-transformer-a
 ```
 
 For B, add the aligned Aria directory:
 
 ```bash
 python -m egomimic.trainHydra \
-  --config-name train_piper_b_mixed_clean_v2 \
+  --config-name train_piper_b_residual_joint_transformer \
   paths.dataset_dir=/data/piper_zarr \
   data.train_datasets.human_left_arm.resolver.folder_path=/data/aria_left_aligned \
-  hydra.run.dir=.local_calibration/runs/clean-v2-b
+  hydra.run.dir=.local_calibration/runs/residual-joint-transformer-b
 ```
 
 Append `"${SPLIT_OVERRIDES[@]}"` to these commands when training on episode
@@ -135,7 +139,7 @@ norm_stats.precomputed_norm_path=/absolute/run/norm_stats
 
 ## 4. Slurm launcher
 
-`egomimic/scripts/piper_process/hpc/train_clean_v2.sbatch` runs the same smoke
+`egomimic/scripts/piper_process/hpc/train_residual_joint_transformer.sbatch` runs the same smoke
 gate followed by formal training. Cluster-specific account, partition, modules,
 storage, and environment setup are intentionally supplied at submission time.
 
@@ -160,11 +164,11 @@ for the target cluster:
 ```bash
 sbatch -A <account> -p <gpu-partition> \
   --export=ALL,PIPER_WORK_ROOT=/work/piper,PIPER_DATA_ARCHIVE=/work/data/piper_zarr.tar,PIPER_ENV_SETUP=/work/env/piper.sh \
-  egomimic/scripts/piper_process/hpc/train_clean_v2.sbatch a
+  egomimic/scripts/piper_process/hpc/train_residual_joint_transformer.sbatch a
 
 sbatch -A <account> -p <gpu-partition> \
   --export=ALL,PIPER_WORK_ROOT=/work/piper,PIPER_DATA_ARCHIVE=/work/data/piper_zarr.tar,ARIA_DATA_ARCHIVE=/work/data/aria_left_aligned.tar,PIPER_ENV_SETUP=/work/env/piper.sh \
-  egomimic/scripts/piper_process/hpc/train_clean_v2.sbatch b
+  egomimic/scripts/piper_process/hpc/train_residual_joint_transformer.sbatch b
 ```
 
 Hydra overrides placed after `a` or `b` are forwarded to both the smoke and
@@ -173,7 +177,7 @@ formal run. This also makes the launcher usable with another Piper dataset:
 ```bash
 sbatch -A <account> -p <gpu-partition> \
   --export=ALL,PIPER_WORK_ROOT=/work/piper,PIPER_DATA_ARCHIVE=/work/data/new_task.tar,PIPER_ENV_SETUP=/work/env/piper.sh \
-  egomimic/scripts/piper_process/hpc/train_clean_v2.sbatch a \
+  egomimic/scripts/piper_process/hpc/train_residual_joint_transformer.sbatch a \
   '~data.train_datasets.piper_right_arm.filters' \
   '~data.valid_datasets.piper_right_arm.filters' \
   data.train_datasets.piper_right_arm.mode=train \
@@ -187,7 +191,7 @@ Supported launcher variables are:
 | Variable | Default | Purpose |
 |---|---|---|
 | `PIPER_CODE` | repository containing the script | code checkout |
-| `PIPER_WORK_ROOT` | `.local_calibration/hpc_clean_v2` | persistent runs and caches |
+| `PIPER_WORK_ROOT` | `.local_calibration/hpc_residual_joint_transformer` | persistent runs and caches |
 | `PIPER_DATA_ARCHIVE` | `$PIPER_WORK_ROOT/data/piper_zarr.tar` | Piper archive |
 | `ARIA_DATA_ARCHIVE` | `$PIPER_WORK_ROOT/data/aria_left_aligned.tar` | B-only Aria archive |
 | `PIPER_ENV_SETUP` | unset | sourced module/environment setup file |
@@ -207,9 +211,9 @@ Before moving to a new machine, run the focused checks:
 ```bash
 source emimic/bin/activate
 pytest -q \
-  egomimic/rldb/embodiment/test_piper_clean_v2.py \
-  egomimic/models/test_residual_joint_policy_clean_v2.py \
-  egomimic/models/test_residual_joint_policy_mixed_clean_v2.py \
+  egomimic/rldb/embodiment/test_piper_residual_joint.py \
+  egomimic/models/test_residual_joint_transformer.py \
+  egomimic/models/test_residual_joint_transformer_keyed.py \
   egomimic/robot/piper/test_gripper_utils.py \
   egomimic/robot/piper/test_rollout_joint.py
 ```
