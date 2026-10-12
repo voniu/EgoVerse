@@ -15,7 +15,7 @@ from egomimic.robot.piper.robot_interface import (
     Geometry,
     PiperHardware,
 )
-from egomimic.scripts.piper_process.evaluate_full import ACTION, DOMAIN, load_model
+from egomimic.scripts.piper_process.evaluate_full import DOMAIN, load_model
 from egomimic.scripts.piper_process.evaluate_joint_heads import JOINT_ACTION
 from egomimic.utils.provenance import run_record, sha256
 
@@ -29,8 +29,14 @@ class JointPolicy:
         self.policy = self.model.nets["policy"]
         self.head = self.policy.heads[f"{DOMAIN}_{JOINT_ACTION}"]
         self.is_flow = hasattr(self.head, "sample_action")
+        self.head_name = getattr(self.head, "contract_name", None) or (
+            "FM" if self.is_flow else "MLP"
+        )
+        self.binary_gripper = self.head_name == "piper_residual_joint_clean_v2"
         self.flow_seed = flow_seed
-        self.horizon = self.head.action_horizon
+        self.model_horizon = self.head.action_horizon
+        self.horizon = getattr(self.head, "control_horizon", self.model_horizon)
+        self.primary_action_key = self.model.ac_keys[7]
         state_stats = self.model.norm_stats.norm_stats[7]["observations.state.joints"]
         if np.asarray(state_stats["mean"]).size != 7:
             raise ValueError("Checkpoint does not contain seven-channel joint state")
@@ -40,10 +46,12 @@ class JointPolicy:
         raw = {
             "observations.state.joints": torch.as_tensor(state, dtype=torch.float32)[
                 None
-            ],
-            ACTION: torch.zeros(1, self.horizon, 7),
-            JOINT_ACTION: torch.zeros(1, self.horizon, 7),
+            ]
         }
+        for action_key in {self.primary_action_key, JOINT_ACTION}:
+            action_stats = self.model.norm_stats.norm_stats[7][action_key]
+            action_dims = int(np.asarray(action_stats["mean"]).shape[-1])
+            raw[action_key] = torch.zeros(1, self.model_horizon, action_dims)
         for key, rgb in [("front_img_1", front), ("right_wrist_img", wrist)]:
             if rgb.shape != (480, 640, 3) or rgb.dtype != np.uint8:
                 raise ValueError("Cameras must supply 640x480 uint8 RGB images")
@@ -72,7 +80,10 @@ class JointPolicy:
             prediction = raw_prediction
             normalized_overrun = torch.zeros_like(raw_prediction[0]).cpu().numpy()
         else:
-            raw_prediction = self.head(features).float()
+            if getattr(self.head, "requires_data_for_inference", False):
+                raw_prediction = self.head(features, data).float()
+            else:
+                raw_prediction = self.head(features).float()
             prediction = raw_prediction.clamp(-1, 1)
             normalized_overrun = (
                 (raw_prediction[0].abs() - 1).clamp_min(0).cpu().numpy()
@@ -91,13 +102,26 @@ class JointPolicy:
             .cpu()
             .numpy()
         )
+        if self.binary_gripper:
+            result[:, 6] = (result[:, 6] >= 0.5) * 0.1
+            raw_result[:, 6] = (raw_result[:, 6] >= 0.5) * 0.1
+        if self.horizon != self.model_horizon:
+            control_indices = uniform_horizon_indices(self.model_horizon, self.horizon)
+            result = result[control_indices]
+            raw_result = raw_result[control_indices]
+            normalized_overrun = normalized_overrun[control_indices]
         if not np.isfinite([result, raw_result, normalized_overrun]).all():
             raise RuntimeError("Nonfinite model output")
         return result, raw_result, normalized_overrun
 
 
-def clip_near_joint_limits(joints, bounds, tolerance_deg):
-    """Clip small boundary overshoots and reject targets far outside the URDF."""
+def uniform_horizon_indices(model_horizon, control_horizon):
+    """Select control points uniformly across a model trajectory."""
+    return np.rint(np.linspace(0, model_horizon - 1, control_horizon)).astype(np.int64)
+
+
+def apply_joint_limits(joints, bounds, tolerance_deg, allow_small_overshoot=False):
+    """Clip or pass small overshoots; reject targets far outside the URDF."""
     joints = np.asarray(joints)
     lower_error = np.maximum(bounds[:, 0] - joints, 0)
     upper_error = np.maximum(joints - bounds[:, 1], 0)
@@ -107,6 +131,8 @@ def clip_near_joint_limits(joints, bounds, tolerance_deg):
         raise RuntimeError(
             f"J{worst + 1} target exceeds URDF limit by {violation_deg[worst]:.2f}deg"
         )
+    if allow_small_overshoot:
+        return joints, violation_deg
     return np.clip(joints, bounds[:, 0], bounds[:, 1]), violation_deg
 
 
@@ -298,7 +324,15 @@ def main():
         "--joint-limit-tolerance-deg",
         type=float,
         default=3.0,
-        help="Clip URDF-limit overshoots up to this size; reject larger ones",
+        help="Maximum URDF-limit overshoot eligible for clipping or pass-through",
+    )
+    parser.add_argument(
+        "--allow-small-joint-limit-overshoot",
+        action="store_true",
+        help=(
+            "Send joint targets outside URDF limits when their violation is within "
+            "joint-limit-tolerance-deg; larger violations still stop execution"
+        ),
     )
     parser.add_argument(
         "--query-every",
@@ -405,7 +439,7 @@ def main():
                     for key, value in vars(args).items()
                 },
                 "checkpoint_step": policy.step,
-                "head": "flow" if policy.is_flow else "mlp",
+                "head": policy.head_name,
                 "checkpoint_sha256": sha256(checkpoint),
                 "source": run_record(ROOT),
                 "model_action_hz": 30,
@@ -494,7 +528,7 @@ def main():
         stage = "policy rollout"
         print(
             f"{'EXECUTE' if args.execute else 'READ ONLY'} | checkpoint step "
-            f"{policy.step} | head {'FM' if policy.is_flow else 'MLP'} | "
+            f"{policy.step} | head {policy.head_name} | "
             f"logs: {args.output}",
             flush=True,
         )
@@ -566,10 +600,11 @@ def main():
                 for horizon, action in actions:
                     if time.monotonic() - started >= args.duration:
                         break
-                    joints, violation_deg = clip_near_joint_limits(
+                    joints, violation_deg = apply_joint_limits(
                         action[:6],
                         geometry.model_bounds,
                         args.joint_limit_tolerance_deg,
+                        args.allow_small_joint_limit_overshoot,
                     )
                     if horizon in (0, -1):
                         first_violation = violation_deg
@@ -602,10 +637,11 @@ def main():
                         if args.execute and (
                             control_status["ctrl_mode"] != 1
                             or control_status["arm_status"] != 0
+                            or any(control_status["joint_limit_errors"])
                             or not all(control_status["enabled"])
                         ):
                             raise RuntimeError(
-                                f"Piper left active CAN control: {control_status}"
+                                f"Piper control status fault: {control_status}"
                             )
                         tracking_error_deg = np.abs(applied_step_deg)
                         max_tracking_error = float(tracking_error_deg.max())
@@ -690,7 +726,8 @@ def main():
                     f"{np.abs(first_applied_step_deg).max():.1f}deg, step clip "
                     f"{np.abs(first_raw_step_deg).max():.1f}->"
                     f"{np.abs(first_applied_step_deg).max():.1f}deg "
-                    f"(scale {first_step_scale:.2f}), limit clip "
+                    f"(scale {first_step_scale:.2f}), limit "
+                    f"{'pass' if args.allow_small_joint_limit_overshoot else 'clip'} "
                     f"{first_violation.max():.2f}deg, gripper "
                     f"{first_action[6] * 1000:.1f}mm, sources {ensemble_sources}",
                     flush=True,
