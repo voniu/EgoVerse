@@ -1,5 +1,14 @@
 *.pth
+*.pt
+*.ckpt
 *.pyc
+__pycache__/
+.pytest_cache/
+.env
+.env.*
+!.env.example
+slurm-*.out
+wandb/
 egomimic.egg-info/
 *.hdf5
 *.out.*

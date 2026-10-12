@@ -1,46 +1,54 @@
 #!/bin/bash
-#SBATCH --partition=gpu
-#SBATCH --account=naiss2026-3-376-gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --gpus=1
 #SBATCH --mem=48G
 #SBATCH --time=12:00:00
-#SBATCH --output=/home/zekun/egoverse_piper/logs/%x-%j.log
+#SBATCH --output=slurm-%x-%j.out
 
 set -euo pipefail
 
-ROOT=/home/zekun/egoverse_piper
 GROUP=${1:?Pass a or b}
-CODE=${PIPER_CODE:-$ROOT/code_clean_v2}
+shift
+EXTRA_OVERRIDES=("$@")
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "$SCRIPT_DIR/../../../.." && pwd)
+CODE=${PIPER_CODE:-$REPO_ROOT}
+WORK_ROOT=${PIPER_WORK_ROOT:-$CODE/.local_calibration/hpc_clean_v2}
+PIPER_DATA_ARCHIVE=${PIPER_DATA_ARCHIVE:-$WORK_ROOT/data/piper_zarr.tar}
+ARIA_DATA_ARCHIVE=${ARIA_DATA_ARCHIVE:-$WORK_ROOT/data/aria_left_aligned.tar}
 case "$GROUP" in
   a) CONFIG=train_piper_a_residual_clean_v2 ;;
   b) CONFIG=train_piper_b_mixed_clean_v2 ;;
   *) echo "GROUP must be a or b" >&2; exit 2 ;;
 esac
 
-module load GPU/Python/3.13.5-bundle-SciPy-2025.07-mpi4py-4.1.0-gcc-2025b-eb
-export LD_LIBRARY_PATH=/software/sse2/el9_gh200/easybuild/prefix/software/GCCcore/14.3.0/lib64:${LD_LIBRARY_PATH:-}
-source "$ROOT/code/emimic/bin/activate"
+if [[ -n "${PIPER_ENV_SETUP:-}" ]]; then
+  source "$PIPER_ENV_SETUP"
+else
+  source "${PIPER_VENV:-$CODE/emimic}/bin/activate"
+fi
 cd "$CODE"
 export PYTHONPATH="$CODE:${PYTHONPATH:-}"
 export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 MPLBACKEND=Agg
-export TORCH_HOME="$ROOT/assets"
-export TMPDIR=/scratch/local/piper-clean-v2-$GROUP-$SLURM_JOB_ID
+export TORCH_HOME=${TORCH_HOME:-$WORK_ROOT/assets}
+SCRATCH_BASE=${SLURM_TMPDIR:-${PIPER_SCRATCH_ROOT:-/tmp}}
+export TMPDIR=$SCRATCH_BASE/piper-clean-v2-$GROUP-${SLURM_JOB_ID:-manual}
 export MPLCONFIGDIR="$TMPDIR/mpl"
 
 ROBOT=$TMPDIR/robot
 HUMAN=$TMPDIR/human
-RUN=$ROOT/runs/clean-v2-$GROUP-$SLURM_JOB_ID
+RUN=${PIPER_RUN_DIR:-$WORK_ROOT/runs/clean-v2-$GROUP-${SLURM_JOB_ID:-manual}}
 mkdir -p "$ROBOT" "$HUMAN" "$MPLCONFIGDIR" "$RUN"
-tar -xf "$ROOT/data/piper_zarr.tar" -C "$ROBOT"
+tar -xf "$PIPER_DATA_ARCHIVE" -C "$ROBOT"
 
 OVERRIDES=("paths.dataset_dir=$ROBOT" "num_workers=0")
 if [[ "$GROUP" == b ]]; then
-  tar -xf "$ROOT/data/aria_left_aligned.tar" -C "$HUMAN"
+  tar -xf "$ARIA_DATA_ARCHIVE" -C "$HUMAN"
   OVERRIDES+=("data.train_datasets.human_left_arm.resolver.folder_path=$HUMAN")
 fi
+OVERRIDES+=("${EXTRA_OVERRIDES[@]}")
 
 # Short GPU/data/FK backward check. The formal run reuses only its normalization
 # statistics and starts model/optimizer training from scratch.
