@@ -36,11 +36,14 @@ MPLBACKEND=Agg MPLCONFIGDIR=/tmp/piper_mpl python -m egomimic.scripts.piper_proc
   --dataset /mnt/wd10/zekun/data/Data_Collect/teddy_0912_1 \
   --episode 0 \
   --output outputs/piper_pilot \
+  --calibration /path/to/current_piper.yaml \
   --action-calibration /home/master-ht/.cache/huggingface/lerobot/calibration/robots/piper/my_piper_follower.json \
-  --wrist-intrinsics /mnt/wd10/zekun/data/piper_l_kinematics_check/camera_intrinsics/405.json
+  --wrist-intrinsics egomimic/robot/piper/d405_intrinsics_640x480.json
 ```
 
 输出已存在时停止，不覆盖。当前支持一条 episode 的数值数据和每路视频各自落在单个文件中的布局，使用 v3 元数据定位 episode，按视频时间戳截取，保持原图 640×480。
+`current_piper.yaml` 需包含采集时有效的 D435IF `T_base_camera`；仓库不保存当前平台的
+D435IF 外参。
 
 ## 数据含义
 

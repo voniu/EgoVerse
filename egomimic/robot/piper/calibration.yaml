@@ -16,11 +16,9 @@ cameras:
       - [0.0, 0.0, 1.0]
       distortion_model: inverse_brown_conrady
       distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]
-    extrinsics:
-      parent_frame: base_link
-      child_frame: camera_color_optical_frame
-      translation_m: [0.043138, -0.228581, 0.684012]
-      quaternion_xyzw: [-0.712828, 0.680135, -0.154626, 0.073375]
+  d405:
+    serial: '427622273943'
+    intrinsics_file: egomimic/robot/piper/d405_intrinsics_640x480.json
 tcp:
   parent_frame: link6
   child_frame: piper_tcp

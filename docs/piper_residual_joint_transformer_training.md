@@ -56,9 +56,19 @@ python -m egomimic.scripts.piper_process.lerobot_to_zarr \
   --dataset /data/lerobot/task_01 \
   --episode 0 \
   --output /data/piper_zarr \
+  --calibration /calibration/current_piper.yaml \
   --action-calibration /calibration/piper_follower.json \
-  --wrist-intrinsics /calibration/d405.json
+  --wrist-intrinsics egomimic/robot/piper/d405_intrinsics_640x480.json
 ```
+
+The checked-in D405 file is the factory calibration for serial
+`427622273943` at 640×480 RGB with zero image rotation. Use a freshly read
+profile when the camera, stream resolution, crop, or rotation changes. A
+mounting change affects camera extrinsics, not these intrinsic parameters.
+The Residual Joint Transformer consumes D405 RGB directly and does not need a
+D405-to-wrist transform. The repository does not contain D435IF extrinsics;
+conversion must receive the `T_base_camera` that was valid during collection
+through `--calibration`.
 
 After conversion, add the Residual Joint Transformer open/closed target once:
 

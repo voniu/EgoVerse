@@ -32,7 +32,10 @@ class Geometry:
         self.grip_scale = k["recorded_sdk_feedback"]["gripper_mm_per_raw_unit"] / 1000
         urdf = ROOT / k["reference_urdf_path"]
         self.fk = PiperKinematics(urdf)
-        self.base_camera = transform(self.config["cameras"]["d435if"]["extrinsics"])
+        front_extrinsics = self.config["cameras"]["d435if"].get("extrinsics")
+        self.base_camera = (
+            transform(front_extrinsics) if front_extrinsics is not None else None
+        )
         self.link_tcp = transform(self.config["tcp"])
         root = ET.parse(urdf).getroot()
         bounds = np.array(
@@ -66,6 +69,8 @@ class Geometry:
         )
 
     def state(self, raw):
+        if self.base_camera is None:
+            raise RuntimeError("Pose control requires calibrated D435IF extrinsics")
         q = np.deg2rad(np.asarray(raw[:6]) * self.joint_scale)
         tcp = np.linalg.inv(self.base_camera) @ self.tcp_base(q)
         return np.r_[
@@ -76,6 +81,8 @@ class Geometry:
 
     def inverse(self, action, seed):
         """Solve near the previous joint command; reject unreachable pose targets."""
+        if self.base_camera is None:
+            raise RuntimeError("Pose control requires calibrated D435IF extrinsics")
         if np.shape(action) != (7,) or not np.isfinite(action).all():
             raise ValueError("Expected finite [xyz, yaw,pitch,roll, gripper] action")
         camera_tcp = np.eye(4)
