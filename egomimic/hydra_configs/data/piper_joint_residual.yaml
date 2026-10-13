@@ -9,6 +9,8 @@ train_datasets:
         _target_: egomimic.rldb.embodiment.piper_residual_joint.PiperResidualJoint.get_keymap
         action_horizon: 30
         mixed: true
+        # Robot shared-pose label: cmd (leader command) or obs (follower motion).
+        pose_label: cmd
       transform_list:
         _target_: egomimic.rldb.embodiment.piper_residual_joint.PiperResidualJoint.get_transform_list
         mixed: true

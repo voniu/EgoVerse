@@ -55,6 +55,14 @@ early; checkpoints from that contract keep loading, but retrain to use the
 native labels. Normalization statistics are per timestep, so recompute them
 after this change.
 
+The robot label of the shared pose head is selected with `pose_label`:
+`cmd` (default, leader command, as in earlier runs) or `obs` (observed follower
+pose, matching the human label, which is observed hand motion). The follower
+lags the leader by about 2-4 frames. Select it with
+`data.train_datasets.piper_right_arm.resolver.key_map.pose_label=obs`; the
+validation split follows the training value. The joint head always learns the
+commands.
+
 `lerobot_to_zarr.py` converts a Piper LeRobot v3 episode. Its required
 calibration files are specific to the robot and cameras used during collection:
 

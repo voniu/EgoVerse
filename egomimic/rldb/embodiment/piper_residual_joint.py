@@ -14,6 +14,11 @@ from egomimic.utils.pose_utils import _matrix_to_xyzwxyz, _xyzwxyz_to_matrix
 
 RAW_HORIZON = 30
 MODEL_HORIZON = 100
+# Robot label for the shared pose head: leader command or observed follower pose.
+POSE_LABEL_KEYS = {
+    "cmd": "right.cmd_ee_pose_camframe",
+    "obs": "right.obs_ee_pose_camframe",
+}
 
 
 class BinaryGripperIntent(Transform):
@@ -31,7 +36,13 @@ class PiperResidualJoint(Embodiment):
     """Piper state plus calibrated joint command and binary gripper intent."""
 
     @classmethod
-    def get_keymap(cls, norm_mode=False, action_horizon=RAW_HORIZON, mixed=False):
+    def get_keymap(
+        cls, norm_mode=False, action_horizon=RAW_HORIZON, mixed=False, pose_label="cmd"
+    ):
+        if pose_label not in POSE_LABEL_KEYS:
+            raise ValueError(
+                f"pose_label must be one of {sorted(POSE_LABEL_KEYS)}, got {pose_label!r}"
+            )
         mapping = {
             cls.VIZ_IMAGE_KEY: {
                 "key_type": "camera_keys",
@@ -63,7 +74,7 @@ class PiperResidualJoint(Embodiment):
         if mixed:
             mapping["right.cmd_ee_pose"] = {
                 "key_type": "action_keys",
-                "zarr_key": "right.cmd_ee_pose_camframe",
+                "zarr_key": POSE_LABEL_KEYS[pose_label],
                 "horizon": action_horizon,
             }
         if norm_mode:

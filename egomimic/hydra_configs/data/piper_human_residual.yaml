@@ -26,6 +26,8 @@ valid_datasets:
     resolver:
       key_map:
         mixed: true
+        # Merging here detaches the resolver from train's; keep the label tied.
+        pose_label: ${data.train_datasets.piper_right_arm.resolver.key_map.pose_label}
       transform_list:
         mixed: true
   human_left_arm:

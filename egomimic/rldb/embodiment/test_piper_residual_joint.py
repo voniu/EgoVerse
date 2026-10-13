@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from egomimic.rldb.embodiment.piper_residual_joint import (
     AriaLeftPoseResidualJoint,
@@ -52,6 +53,21 @@ def test_piper_joint_and_gripper_labels_are_native_frames():
     np.testing.assert_array_equal(
         result["actions_joints"][:, 6], (np.arange(30) % 2 == 1).astype(np.float32)
     )
+
+
+@pytest.mark.parametrize(
+    ("pose_label", "zarr_key"),
+    [("cmd", "right.cmd_ee_pose_camframe"), ("obs", "right.obs_ee_pose_camframe")],
+)
+def test_piper_pose_label_selects_zarr_key(pose_label, zarr_key):
+    mapping = PiperResidualJoint.get_keymap(mixed=True, pose_label=pose_label)
+    assert mapping["right.cmd_ee_pose"]["zarr_key"] == zarr_key
+    assert mapping["right.cmd_joints"]["zarr_key"] == "right.cmd_joints"
+
+
+def test_piper_pose_label_rejects_unknown_value():
+    with pytest.raises(ValueError, match="pose_label"):
+        PiperResidualJoint.get_keymap(mixed=True, pose_label="future")
 
 
 def test_aria_shared_pose_shapes():
