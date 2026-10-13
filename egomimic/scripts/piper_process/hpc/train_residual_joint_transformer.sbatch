@@ -37,13 +37,20 @@ SCRATCH_BASE=${SLURM_TMPDIR:-${PIPER_SCRATCH_ROOT:-/tmp}}
 export TMPDIR=$SCRATCH_BASE/piper-residual-joint-transformer-$GROUP-${SLURM_JOB_ID:-manual}
 export MPLCONFIGDIR="$TMPDIR/mpl"
 
-ROBOT=$TMPDIR/robot
-HUMAN=$TMPDIR/human
+# PIPER_DATA_DIR / ARIA_DATA_DIR point at already extracted, read-only episode
+# folders shared by jobs; otherwise each job extracts the archives to node scratch.
+ROBOT=${PIPER_DATA_DIR:-$TMPDIR/robot}
+HUMAN=${ARIA_DATA_DIR:-$TMPDIR/human}
 RUN=${PIPER_RUN_DIR:-$WORK_ROOT/runs/residual-joint-transformer-$GROUP-${SLURM_JOB_ID:-manual}}
 mkdir -p "$ROBOT" "$HUMAN" "$MPLCONFIGDIR" "$RUN"
-tar -xf "$PIPER_DATA_ARCHIVE" -C "$ROBOT"
+trap 'rm -rf "$TMPDIR"' EXIT
+[[ -n "${PIPER_DATA_DIR:-}" ]] || tar -xf "$PIPER_DATA_ARCHIVE" -C "$ROBOT"
 # Optional Smooth v1 of the extracted copy (commanded joints only); default off.
 if [[ "${PIPER_SMOOTH:-0}" == 1 ]]; then
+  if [[ -n "${PIPER_DATA_DIR:-}" ]]; then
+    echo "PIPER_SMOOTH rewrites episodes in place; use PIPER_DATA_ARCHIVE" >&2
+    exit 2
+  fi
   python -m egomimic.scripts.piper_process.smooth_robot_actions \
     --dataset "$ROBOT" \
     --report "$RUN/action_smoothing_report.json"
@@ -51,7 +58,7 @@ fi
 
 OVERRIDES=("paths.dataset_dir=$ROBOT" "num_workers=0")
 if [[ "$GROUP" == b ]]; then
-  tar -xf "$ARIA_DATA_ARCHIVE" -C "$HUMAN"
+  [[ -n "${ARIA_DATA_DIR:-}" ]] || tar -xf "$ARIA_DATA_ARCHIVE" -C "$HUMAN"
   OVERRIDES+=("data.train_datasets.human_left_arm.resolver.folder_path=$HUMAN")
 fi
 OVERRIDES+=("${EXTRA_OVERRIDES[@]}")

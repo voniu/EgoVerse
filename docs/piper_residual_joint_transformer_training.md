@@ -229,6 +229,7 @@ Supported launcher variables are:
 | `PIPER_SCRATCH_ROOT` | `/tmp` | fallback when `SLURM_TMPDIR` is unavailable |
 | `PIPER_RUN_DIR` | generated under work root | explicit output directory |
 | `PIPER_SMOOTH` | `0` | `1` smooths commanded joints of the extracted copy |
+| `PIPER_DATA_DIR` / `ARIA_DATA_DIR` | unset | use an extracted, read-only episode folder instead of extracting the archive per job |
 
 ## 5. Reproduction record
 
