@@ -405,7 +405,7 @@ flowchart TB
 | HPT action memory | 30×256 | 64×256 |
 | Joint head | Flatten MLP 或 FM CrossTransformer | 30-query residual Transformer decoder |
 | 关节输出 | 绝对关节角 | 当前关节 + 有界残差 |
-| Joint chunk | 30×7 | 内部 30×7；训练接口 100×7；部署恢复 30×7 |
+| Joint chunk | 30×7 | 原生 30×7（2026-10-13 起；此前训练接口 100×7、部署取回 30×7，见 §5.2） |
 | 夹爪 | 连续开度回归 | 独立二值分类 |
 | 平滑约束 | 无显式约束 | 位置、速度、加速度、jerk |
 | 物理约束 | 仅数据空间误差 | 加入 URDF FK position/rotation |
