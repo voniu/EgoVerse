@@ -30,6 +30,9 @@ else
   source "${PIPER_VENV:-$CODE/emimic}/bin/activate"
 fi
 cd "$CODE"
+# srun does not keep the activated PATH on every cluster; pin the interpreter.
+PYTHON=$(command -v python)
+"$PYTHON" -c "import hydra, torch"
 export PYTHONPATH="$CODE:${PYTHONPATH:-}"
 export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 MPLBACKEND=Agg
 export TORCH_HOME=${TORCH_HOME:-$WORK_ROOT/assets}
@@ -51,7 +54,7 @@ if [[ "${PIPER_SMOOTH:-0}" == 1 ]]; then
     echo "PIPER_SMOOTH rewrites episodes in place; use PIPER_DATA_ARCHIVE" >&2
     exit 2
   fi
-  python -m egomimic.scripts.piper_process.smooth_robot_actions \
+  "$PYTHON" -m egomimic.scripts.piper_process.smooth_robot_actions \
     --dataset "$ROBOT" \
     --report "$RUN/action_smoothing_report.json"
 fi
@@ -63,9 +66,11 @@ if [[ "$GROUP" == b ]]; then
 fi
 OVERRIDES+=("${EXTRA_OVERRIDES[@]}")
 
+srun --export=ALL "$PYTHON" -c 'import os, sys, torch; print("srun_env", sys.executable, os.environ.get("TORCH_HOME"), os.environ.get("TMPDIR"), torch.cuda.is_available(), flush=True)'
+
 # Short GPU/data/FK backward check. The formal run reuses only its normalization
 # statistics and starts model/optimizer training from scratch.
-srun python -m egomimic.trainHydra \
+srun --export=ALL "$PYTHON" -m egomimic.trainHydra \
   --config-name "$CONFIG" \
   "${OVERRIDES[@]}" \
   trainer.max_steps=20 \
@@ -74,7 +79,7 @@ srun python -m egomimic.trainHydra \
   "hydra.run.dir=$RUN/smoke"
 
 test -f "$RUN/smoke/norm_stats/norm_stats.json"
-srun python -m egomimic.trainHydra \
+srun --export=ALL "$PYTHON" -m egomimic.trainHydra \
   --config-name "$CONFIG" \
   "${OVERRIDES[@]}" \
   "norm_stats.precomputed_norm_path=$RUN/smoke/norm_stats" \
