@@ -176,6 +176,36 @@ def temporal_ensemble(history, step, decay):
     return np.average(predictions, axis=0, weights=weights), len(predictions)
 
 
+def time_ensemble(history, now, decay, action_hz=30.0):
+    """Average predictions for wall-clock time `now`, favoring newer chunks.
+
+    Each history item is (observation_time, chunk) with chunk rows spaced 1/action_hz
+    apart from the observation. Joints are interpolated linearly between rows and the
+    gripper uses the row in effect, so the target matches the demonstration timing
+    regardless of how fast the control loop runs. Ages are in action steps, as in
+    `temporal_ensemble`. Falls back to the newest chunk's last row if no chunk
+    covers `now`.
+    """
+    predictions = []
+    ages = []
+    for origin, chunk in history:
+        position = (now - origin) * action_hz
+        if not 0 <= position <= len(chunk) - 1:
+            continue
+        low = int(np.floor(position))
+        high = min(low + 1, len(chunk) - 1)
+        alpha = position - low
+        action = np.array(chunk[low], dtype=np.float64)
+        action[:-1] = (1 - alpha) * chunk[low][:-1] + alpha * chunk[high][:-1]
+        predictions.append(action)
+        ages.append(position)
+    if not predictions:
+        return np.array(history[-1][1][-1], dtype=np.float64), 0
+    weights = np.exp(-decay * np.asarray(ages, dtype=np.float64))
+    weights /= weights.sum()
+    return np.average(predictions, axis=0, weights=weights), len(predictions)
+
+
 def load_initial_pose(path):
     spec = json.loads(Path(path).read_text())
     state = np.r_[spec["model_joints_rad"], spec["gripper_m"]].astype(float)
@@ -360,13 +390,18 @@ def main():
         dest="query_every",
         type=int,
         default=10,
-        help="Chunk mode only: execute this prefix before observing again (1..30)",
+        help="chunk/time-ensemble: commands sent at control-hz before observing again (1..30)",
     )
     parser.add_argument(
         "--execution-mode",
-        choices=("ensemble", "chunk"),
+        choices=("ensemble", "chunk", "time-ensemble"),
         default="ensemble",
-        help="Replan every step with temporal ensembling, or execute chunk prefixes",
+        help=(
+            "ensemble: one command per inference, chunks aligned by loop step; "
+            "chunk: execute query-every rows of the newest chunk at control-hz; "
+            "time-ensemble: send query-every commands at control-hz per inference, "
+            "each the age-weighted average of all chunks at the current wall-clock time"
+        ),
     )
     parser.add_argument(
         "--ensemble-decay",
@@ -558,6 +593,7 @@ def main():
             while time.monotonic() - started < args.duration:
                 front, wrist = robot.images()
                 raw = robot.read_state()
+                state_time = time.monotonic()
                 state = geometry.joint_state(raw)
                 t0 = time.monotonic()
                 chunk, raw_chunk, normalized_overrun = policy.predict(
@@ -610,6 +646,16 @@ def main():
                         history, action_step, args.ensemble_decay
                     )
                     actions = [(-1, ensemble_action)]
+                elif args.execution_mode == "time-ensemble":
+                    history.append((state_time, chunk))
+                    now = time.monotonic()
+                    history = [
+                        item
+                        for item in history
+                        if (now - item[0]) * 30.0 <= policy.horizon
+                    ]
+                    ensemble_sources = None
+                    actions = [(-1, None)] * args.query_every
                 else:
                     ensemble_sources = 1
                     actions = enumerate(chunk[: args.query_every])
@@ -622,6 +668,10 @@ def main():
                 for horizon, action in actions:
                     if time.monotonic() - started >= args.duration:
                         break
+                    if action is None:
+                        action, ensemble_sources = time_ensemble(
+                            history, time.monotonic(), args.ensemble_decay
+                        )
                     joints, violation_deg = apply_joint_limits(
                         action[:6],
                         geometry.model_bounds,

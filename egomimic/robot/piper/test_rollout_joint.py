@@ -90,3 +90,45 @@ def test_gripper_effort_is_validated_before_connecting() -> None:
 
     with pytest.raises(ValueError, match="gripper_effort"):
         PiperHardware(geometry=None, gripper_effort=6000)
+
+
+def _ramp_chunk(start=0.0, gripper=1.0):
+    chunk = np.zeros((30, 7))
+    chunk[:, 0] = start + np.arange(30)  # joint 1 advances 1 unit per action step
+    chunk[:, 6] = gripper
+    return chunk
+
+
+def test_time_ensemble_interpolates_at_wall_clock_time() -> None:
+    from egomimic.robot.piper.rollout_joint import time_ensemble
+
+    chunk = _ramp_chunk()
+    chunk[10:, 6] = 0.0
+    action, sources = time_ensemble([(100.0, chunk)], 100.0 + 9.5 / 30, decay=0.05)
+
+    assert sources == 1
+    assert action[0] == pytest.approx(9.5)
+    assert action[6] == 1.0  # gripper uses the row in effect, not an interpolation
+
+
+def test_time_ensemble_weights_newer_chunks_by_age() -> None:
+    from egomimic.robot.piper.rollout_joint import time_ensemble
+
+    old, new = _ramp_chunk(0.0), _ramp_chunk(100.0)
+    now = 10.0 + 10 / 30
+    action, sources = time_ensemble([(10.0, old), (now, new)], now, decay=0.05)
+
+    w_old, w_new = np.exp(-0.05 * 10), 1.0
+    expected = (w_old * 10.0 + w_new * 100.0) / (w_old + w_new)
+    assert sources == 2
+    assert action[0] == pytest.approx(expected)
+
+
+def test_time_ensemble_ignores_expired_chunks_and_falls_back() -> None:
+    from egomimic.robot.piper.rollout_joint import time_ensemble
+
+    expired = _ramp_chunk(0.0)
+    action, sources = time_ensemble([(0.0, expired)], 5.0, decay=0.05)
+
+    assert sources == 0
+    np.testing.assert_allclose(action, expired[-1])
