@@ -9,6 +9,24 @@
 
 set -euo pipefail
 
+# Job notifications (resources allocated, training started, failed, finished)
+# through PIPER_NOTIFY, default ~/.config/hpc/notify.sh; silently skipped if absent.
+NOTIFY=${PIPER_NOTIFY:-$HOME/.config/hpc/notify.sh}
+notify() { if [[ -x "$NOTIFY" ]]; then "$NOTIFY" "$@" || true; fi; }
+job_log() {
+  scontrol show job -o "${SLURM_JOB_ID:-0}" 2>/dev/null | grep -oP 'StdOut=\K\S+'
+}
+on_exit() {
+  local status=$?
+  if [[ -n "${CLEAN_DIR:-}" ]]; then rm -rf "$CLEAN_DIR"; fi
+  if ((status != 0)) && [[ -z "${TERMINATED:-}" ]]; then
+    notify "报错结束 exit=$status" "run: ${RUN:-?}" \
+      "$(tail -n 6 "$(job_log)" 2>/dev/null | cut -c1-200)"
+  fi
+}
+trap on_exit EXIT
+trap 'TERMINATED=1; notify "收到终止信号（超时或被取消）" "run: ${RUN:-?}"; exit 143' TERM
+
 GROUP=${1:?Pass a or b}
 shift
 EXTRA_OVERRIDES=("$@")
@@ -46,7 +64,9 @@ ROBOT=${PIPER_DATA_DIR:-$TMPDIR/robot}
 HUMAN=${ARIA_DATA_DIR:-$TMPDIR/human}
 RUN=${PIPER_RUN_DIR:-$WORK_ROOT/runs/residual-joint-transformer-$GROUP-${SLURM_JOB_ID:-manual}}
 mkdir -p "$ROBOT" "$HUMAN" "$MPLCONFIGDIR" "$RUN"
-trap 'rm -rf "$TMPDIR"' EXIT
+CLEAN_DIR=$TMPDIR
+notify "已分配到计算资源" "run: $RUN" "config: $CONFIG" \
+  "gpu: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
 [[ -n "${PIPER_DATA_DIR:-}" ]] || tar -xf "$PIPER_DATA_ARCHIVE" -C "$ROBOT"
 # Optional Smooth v1 of the extracted copy (commanded joints only); default off.
 if [[ "${PIPER_SMOOTH:-0}" == 1 ]]; then
@@ -79,8 +99,22 @@ srun --export=ALL "$PYTHON" -m egomimic.trainHydra \
   "hydra.run.dir=$RUN/smoke"
 
 test -f "$RUN/smoke/norm_stats/norm_stats.json"
+notify "smoke 通过，开始正式训练" "run: $RUN"
 srun --export=ALL "$PYTHON" -m egomimic.trainHydra \
   --config-name "$CONFIG" \
   "${OVERRIDES[@]}" \
   "norm_stats.precomputed_norm_path=$RUN/smoke/norm_stats" \
   "hydra.run.dir=$RUN/train"
+
+summary=$("$PYTHON" - "$RUN/train" <<'PY' 2>/dev/null || true
+import csv, glob, sys
+run = sys.argv[1]
+rows = list(csv.DictReader(open(sorted(glob.glob(run + "/metrics/*/metrics.csv"))[-1])))
+keys = [k for k in rows[0] if k.startswith("Valid/") and k.endswith("_loss")]
+last = {k: next(float(r[k]) for r in reversed(rows) if r.get(k)) for k in keys}
+step = max(int(r["step"]) for r in rows if r.get("step"))
+print(f"step {step}; " + ", ".join(f"{k}={v:.4f}" for k, v in last.items()))
+print("checkpoints: " + " ".join(sorted(p.split("/")[-1] for p in glob.glob(run + "/checkpoints/*.ckpt"))))
+PY
+)
+notify "训练正常结束" "run: $RUN" "$summary"
