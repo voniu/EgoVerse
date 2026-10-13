@@ -34,7 +34,7 @@ export TMPDIR="$scratch"
 install -d -m 700 "$env_parent"
 python_path="$("$uv" python find 3.11.14)"
 stage="$env_parent/.${profile}.staging-${SLURM_JOB_ID}"
-"$uv" venv --python "$python_path" "$stage"
+"$uv" venv --relocatable --python "$python_path" "$stage"
 "$uv" pip sync --python "$stage/bin/python" --require-hashes \
   --extra-index-url https://download.pytorch.org/whl/cu128 \
   --index-strategy unsafe-best-match "$lock"
