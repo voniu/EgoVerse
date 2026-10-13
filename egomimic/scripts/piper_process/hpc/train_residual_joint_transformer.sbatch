@@ -16,16 +16,60 @@ notify() { if [[ -x "$NOTIFY" ]]; then "$NOTIFY" "$@" || true; fi; }
 job_log() {
   scontrol show job -o "${SLURM_JOB_ID:-0}" 2>/dev/null | grep -oP 'StdOut=\K\S+'
 }
+# Append one JSON line per job to the run ledger (PIPER_LEDGER, default
+# $WORK_ROOT/ledger.jsonl): the raw record that docs/research/EXPERIMENTS.md
+# entries are built from. Never fails the job.
+record_run() {
+  local outcome=$1
+  LEDGER_OUTCOME=$outcome LEDGER_RUN=${RUN:-} LEDGER_GROUP=${GROUP:-} \
+  LEDGER_CONFIG=${CONFIG:-} LEDGER_CODE=${CODE:-} \
+  LEDGER_OVERRIDES=$(printf '%s\n' "${OVERRIDES[@]:-}") \
+  python3 - "${LEDGER:-}" <<'PY' 2>/dev/null || true
+import csv, datetime, glob, json, os, subprocess, sys
+env = os.environ.get
+ledger, run, code = sys.argv[1], env("LEDGER_RUN"), env("LEDGER_CODE")
+if not ledger:
+    sys.exit()
+def git(*args):
+    try:
+        return subprocess.run(["git", "-C", code, *args], capture_output=True, text=True).stdout.strip()
+    except Exception:
+        return ""
+record = {
+    "time": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+    "job_id": env("SLURM_JOB_ID"), "job_name": env("SLURM_JOB_NAME"),
+    "node": env("SLURMD_NODENAME"), "outcome": env("LEDGER_OUTCOME"),
+    "run_dir": run, "group": env("LEDGER_GROUP"), "config": env("LEDGER_CONFIG"),
+    "commit": git("rev-parse", "HEAD"),
+    "dirty_files": len([l for l in git("status", "--porcelain", "--untracked-files=no").splitlines() if l]),
+    "overrides": [o for o in env("LEDGER_OVERRIDES", "").splitlines() if o],
+}
+for stage in ("train", "smoke"):
+    files = sorted(glob.glob(f"{run}/{stage}/metrics/*/metrics.csv"))
+    if not files:
+        continue
+    rows = list(csv.DictReader(open(files[-1])))
+    keys = [k for k in rows[0] if k.startswith("Valid/") and k.endswith("_loss")]
+    record["metrics_stage"] = stage
+    record["last_step"] = max((int(r["step"]) for r in rows if r.get("step")), default=None)
+    record["valid"] = {k: next((float(r[k]) for r in reversed(rows) if r.get(k)), None) for k in keys}
+    record["checkpoints"] = sorted(os.path.basename(p) for p in glob.glob(f"{run}/{stage}/checkpoints/*.ckpt"))
+    break
+with open(ledger, "a") as handle:
+    handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+PY
+}
 on_exit() {
   local status=$?
   if [[ -n "${CLEAN_DIR:-}" ]]; then rm -rf "$CLEAN_DIR"; fi
   if ((status != 0)) && [[ -z "${TERMINATED:-}" ]]; then
+    record_run "failed exit=$status"
     notify "报错结束 exit=$status" "run: ${RUN:-?}" \
       "$(tail -n 6 "$(job_log)" 2>/dev/null | cut -c1-200)"
   fi
 }
 trap on_exit EXIT
-trap 'TERMINATED=1; notify "收到终止信号（超时或被取消）" "run: ${RUN:-?}"; exit 143' TERM
+trap 'TERMINATED=1; record_run terminated; notify "收到终止信号（超时或被取消）" "run: ${RUN:-?}"; exit 143' TERM
 
 GROUP=${1:?Pass a or b}
 shift
@@ -34,6 +78,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../../../.." && pwd)
 CODE=${PIPER_CODE:-$REPO_ROOT}
 WORK_ROOT=${PIPER_WORK_ROOT:-$CODE/.local_calibration/hpc_residual_joint_transformer}
+LEDGER=${PIPER_LEDGER:-$WORK_ROOT/ledger.jsonl}
 PIPER_DATA_ARCHIVE=${PIPER_DATA_ARCHIVE:-$WORK_ROOT/data/piper_zarr.tar}
 ARIA_DATA_ARCHIVE=${ARIA_DATA_ARCHIVE:-$WORK_ROOT/data/aria_left_aligned.tar}
 case "$GROUP" in
@@ -117,4 +162,5 @@ print(f"step {step}; " + ", ".join(f"{k}={v:.4f}" for k, v in last.items()))
 print("checkpoints: " + " ".join(sorted(p.split("/")[-1] for p in glob.glob(run + "/checkpoints/*.ckpt"))))
 PY
 )
+record_run finished
 notify "训练正常结束" "run: $RUN" "$summary"
