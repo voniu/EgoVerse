@@ -31,6 +31,27 @@ def poses(matrices):
     )
 
 
+def episode_base_camera(group, config):
+    """T_base_camera that this episode's camera-frame poses were built with.
+
+    The converter stores it in the Zarr metadata; the repository calibration no
+    longer carries D435IF extrinsics because the camera moves between setups.
+    """
+    stored = group.attrs.get("extrinsics", {}).get("right")
+    if stored is not None:
+        matrix = np.asarray(stored, dtype=np.float64)
+        if matrix.shape != (4, 4):
+            raise ValueError(f"extrinsics.right must be 4x4, got {matrix.shape}")
+        return matrix
+    extrinsics = config.get("cameras", {}).get("d435if", {}).get("extrinsics")
+    if extrinsics is None:
+        raise ValueError(
+            "Episode has no stored extrinsics and --calibration lacks "
+            "cameras.d435if.extrinsics"
+        )
+    return transform(extrinsics)
+
+
 def smooth(values, window):
     filtered = median_filter(values, size=(3, 1), mode="nearest")
     result = savgol_filter(filtered, window, 2, axis=0, mode="interp")
@@ -71,7 +92,6 @@ def main():
     kinematics = config["kinematics"]
     fk = PiperKinematics(ROOT / kinematics["reference_urdf_path"])
     tcp = transform(config["tcp"])
-    base_camera = transform(config["cameras"]["d435if"]["extrinsics"])
 
     before = {"step_deg": [], "velocity_change_deg": []}
     after = {"step_deg": [], "velocity_change_deg": []}
@@ -80,6 +100,7 @@ def main():
     for index, path in enumerate(paths, 1):
         group = zarr.open_group(str(path), mode="r+")
         frames = int(group.attrs["total_frames"])
+        base_camera = episode_base_camera(group, config)
         joints = np.asarray(group["right.cmd_joints"][:frames], dtype=np.float32)
         gripper = np.asarray(group["right.cmd_gripper"][:frames], dtype=np.float32)
         smoothed_joints = smooth(joints, args.joint_window)

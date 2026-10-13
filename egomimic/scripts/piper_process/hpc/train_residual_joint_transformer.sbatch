@@ -42,6 +42,12 @@ HUMAN=$TMPDIR/human
 RUN=${PIPER_RUN_DIR:-$WORK_ROOT/runs/residual-joint-transformer-$GROUP-${SLURM_JOB_ID:-manual}}
 mkdir -p "$ROBOT" "$HUMAN" "$MPLCONFIGDIR" "$RUN"
 tar -xf "$PIPER_DATA_ARCHIVE" -C "$ROBOT"
+# Optional Smooth v1 of the extracted copy (commanded joints only); default off.
+if [[ "${PIPER_SMOOTH:-0}" == 1 ]]; then
+  python -m egomimic.scripts.piper_process.smooth_robot_actions \
+    --dataset "$ROBOT" \
+    --report "$RUN/action_smoothing_report.json"
+fi
 
 OVERRIDES=("paths.dataset_dir=$ROBOT" "num_workers=0")
 if [[ "$GROUP" == b ]]; then

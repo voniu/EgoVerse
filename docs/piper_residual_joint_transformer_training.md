@@ -211,6 +211,11 @@ sbatch -A <account> -p <gpu-partition> \
   +data.valid_datasets.piper_right_arm.valid_ratio=0.1
 ```
 
+Set `PIPER_SMOOTH=1` to apply Smooth v1 (`smooth_robot_actions.py`, median-3
+plus Savitzky-Golay window 9, order 2) to the extracted copy of the commanded
+joints before training. It reads each episode's stored `extrinsics.right`, so
+it needs no camera calibration file. It is off by default.
+
 Supported launcher variables are:
 
 | Variable | Default | Purpose |
@@ -223,6 +228,7 @@ Supported launcher variables are:
 | `PIPER_VENV` | `<repo>/emimic` | virtualenv used when no setup file is given |
 | `PIPER_SCRATCH_ROOT` | `/tmp` | fallback when `SLURM_TMPDIR` is unavailable |
 | `PIPER_RUN_DIR` | generated under work root | explicit output directory |
+| `PIPER_SMOOTH` | `0` | `1` smooths commanded joints of the extracted copy |
 
 ## 5. Reproduction record
 
@@ -241,5 +247,6 @@ pytest -q \
   egomimic/models/test_residual_joint_transformer_keyed.py \
   egomimic/robot/piper/test_gripper_utils.py \
   egomimic/robot/piper/test_rollout_joint.py \
-  egomimic/algo/test_hpt_multihead_loss.py
+  egomimic/algo/test_hpt_multihead_loss.py \
+  egomimic/scripts/piper_process/test_smooth_robot_actions.py
 ```
