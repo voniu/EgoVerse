@@ -17,8 +17,8 @@ job_log() {
   scontrol show job -o "${SLURM_JOB_ID:-0}" 2>/dev/null | grep -oP 'StdOut=\K\S+'
 }
 # Append one JSON line per job to the run ledger (PIPER_LEDGER, default
-# $WORK_ROOT/ledger.jsonl): the raw record that docs/research/EXPERIMENTS.md
-# entries are built from. Never fails the job.
+# $WORK_ROOT/ledger.jsonl): the raw record the experiment registry is built
+# from. Never fails the job.
 record_run() {
   local outcome=$1
   LEDGER_OUTCOME=$outcome LEDGER_RUN=${RUN:-} LEDGER_GROUP=${GROUP:-} \
