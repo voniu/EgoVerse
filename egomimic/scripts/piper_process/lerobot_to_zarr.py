@@ -141,6 +141,7 @@ def convert(args):
     wrist = json.loads(args.wrist_intrinsics.read_text())
     info = json.loads((args.dataset / "meta/info.json").read_text())
     meta, frames = read_episode(args.dataset, args.episode, info)
+    task_name = args.task_name or str(meta["tasks"][0])
     state = np.stack(frames["observation.state"]).astype(float)
     action = np.stack(frames.action).astype(float)
     if (
@@ -170,7 +171,13 @@ def convert(args):
     q_cmd = np.deg2rad(cmd_raw * scale) * signs + offsets
     fk = PiperKinematics(ROOT / k["reference_urdf_path"])
     T_tcp = transform(cfg["tcp"])
-    T_camera = transform(cfg["cameras"]["d435if"]["extrinsics"])
+    extrinsics = cfg.get("cameras", {}).get("d435if", {}).get("extrinsics")
+    if extrinsics is None:
+        raise ValueError(
+            f"{args.calibration} lacks cameras.d435if.extrinsics; pass --calibration "
+            "with the T_base_camera valid during collection"
+        )
+    T_camera = transform(extrinsics)
     base_obs = fk.fk_from_feedback_deg(np.rad2deg(q_obs)) @ T_tcp
     base_cmd = fk.fk_from_feedback_deg(np.rad2deg(q_cmd)) @ T_tcp
     cam_obs = np.linalg.inv(T_camera) @ base_obs
@@ -220,8 +227,8 @@ def convert(args):
         pre_encoded_image_data=images,
         embodiment="piper_right_arm",
         fps=info["fps"],
-        task_name=str(meta["tasks"][0]),
-        annotations=[(str(meta["tasks"][0]), 0, len(frames))],
+        task_name=task_name,
+        annotations=[(task_name, 0, len(frames))],
         intrinsics={
             key: np.column_stack((intr, np.zeros(3)))
             for key, intr in [
@@ -295,4 +302,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--action-calibration", type=Path, required=True)
     parser.add_argument("--wrist-intrinsics", type=Path, required=True)
+    parser.add_argument(
+        "--task-name",
+        help="Override the LeRobot task string for the name and annotation",
+    )
     convert(parser.parse_args())
