@@ -127,3 +127,49 @@ if __name__ == "__main__":
     test_pre_rename_checkpoint_import_resolves_to_current_head()
     test_contract_rejects_wrong_action_width()
     print("ResidualJointTransformer tests passed")
+
+
+def _native_policy():
+    return ResidualJointTransformer(
+        action_horizon=30,
+        control_horizon=30,
+        infer_ac_dims={"piper_left_arm": 7},
+        input_dim=16,
+        hidden_dim=16,
+        num_layers=1,
+        num_heads=4,
+        dropout=0.0,
+    )
+
+
+def _native_data(batch=2):
+    data = _data(batch)
+    for key in ("_action_norm_quantile_1", "_action_norm_quantile_99"):
+        data[key] = data[key][:30]
+    raw = torch.linspace(-1.0, 1.0, 30)[None, :, None].repeat(batch, 1, 6)
+    data["action"] = torch.cat(
+        (
+            ResidualJointTransformer._normalize(
+                torch.cat((raw, torch.zeros(batch, 30, 1)), -1), data, "action"
+            )[..., :6],
+            data["action"][:, :30, 6:],
+        ),
+        dim=-1,
+    )
+    return data, raw
+
+
+def test_native_horizon_targets_are_the_raw_labels():
+    policy = _native_policy()
+    data, raw = _native_data()
+    torch.testing.assert_close(
+        policy._raw_control_targets(data)[..., :6], raw, atol=1e-5, rtol=0
+    )
+
+
+def test_native_horizon_forward_returns_control_points():
+    policy = _native_policy().eval()
+    data, _ = _native_data()
+    output = policy((torch.randn(2, 8, 16), "piper_left_arm"), data=data)
+    assert output.shape == (2, 30, 7)
+    assert torch.isfinite(policy.compute_loss((torch.randn(2, 8, 16), "x"), data))

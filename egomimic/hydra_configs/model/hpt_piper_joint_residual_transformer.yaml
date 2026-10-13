@@ -74,7 +74,8 @@ robomimic_model:
         mlp_ratio: 4
     piper_right_arm_actions_joints:
       _target_: egomimic.models.residual_joint_transformer_keyed.KeyedResidualJointTransformer
-      action_horizon: 100
+      # Native 30 Hz labels; the shared pose head alone uses the 100-point grid.
+      action_horizon: 30
       control_horizon: 30
       joint_dims: 6
       input_dim: 256

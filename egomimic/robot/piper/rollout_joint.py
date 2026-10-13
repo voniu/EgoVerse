@@ -53,8 +53,7 @@ class JointPolicy:
         }
         for action_key in {self.primary_action_key, JOINT_ACTION}:
             action_stats = self.model.norm_stats.norm_stats[7][action_key]
-            action_dims = int(np.asarray(action_stats["mean"]).shape[-1])
-            raw[action_key] = torch.zeros(1, self.model_horizon, action_dims)
+            raw[action_key] = torch.zeros(1, *dummy_action_shape(action_stats))
         for key, rgb in [("front_img_1", front), ("right_wrist_img", wrist)]:
             if rgb.shape != (480, 640, 3) or rgb.dtype != np.uint8:
                 raise ValueError("Cameras must supply 640x480 uint8 RGB images")
@@ -116,6 +115,18 @@ class JointPolicy:
         if not np.isfinite([result, raw_result, normalized_overrun]).all():
             raise RuntimeError("Nonfinite model output")
         return result, raw_result, normalized_overrun
+
+
+def dummy_action_shape(action_stats):
+    """(length, dims) of a placeholder action from that key's normalization stats.
+
+    Stats are per timestep, so the shared pose key (100 points) and the native
+    joint key (30 points) each keep their own length.
+    """
+    mean = np.asarray(action_stats["mean"])
+    if mean.ndim < 2:
+        raise ValueError(f"expected per-timestep action stats, got shape {mean.shape}")
+    return int(mean.shape[-2]), int(mean.shape[-1])
 
 
 def uniform_horizon_indices(model_horizon, control_horizon):

@@ -3,6 +3,7 @@ import pytest
 
 from egomimic.robot.piper.rollout_joint import (
     apply_joint_limits,
+    dummy_action_shape,
     uniform_horizon_indices,
 )
 
@@ -14,6 +15,19 @@ def test_uniform_horizon_indices_cover_the_complete_prediction() -> None:
     assert indices[0] == 0
     assert indices[-1] == 99
     assert np.all(np.diff(indices) > 0)
+
+
+def test_dummy_action_shape_follows_each_key() -> None:
+    pose_stats = {"mean": np.zeros((100, 9))}
+    joint_stats = {"mean": np.zeros((30, 7))}
+
+    assert dummy_action_shape(pose_stats) == (100, 9)
+    assert dummy_action_shape(joint_stats) == (30, 7)
+
+
+def test_dummy_action_shape_rejects_flat_stats() -> None:
+    with pytest.raises(ValueError, match="per-timestep"):
+        dummy_action_shape({"mean": np.zeros(7)})
 
 
 def test_apply_joint_limits_clips_small_overshoot() -> None:

@@ -56,3 +56,40 @@ def test_unspecified_head_weight_defaults_to_one():
         action_horizon=1,
     )
     assert model._head_loss_weight("human_left_arm", "shared") == 1.0
+
+
+class _ShapeRecordingHead(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.shapes = []
+
+    def compute_loss(self, features, data):
+        self.shapes.append(tuple(data["action"].shape))
+        return data["action"].new_tensor(1.0)
+
+
+def test_auxiliary_action_may_use_a_different_horizon():
+    model = HPTModel(
+        embed_dim=4,
+        num_blocks=0,
+        num_heads=1,
+        observation_horizon=1,
+        action_horizon=1,
+    )
+    model.device = torch.device("cpu")
+    model.shared_action = True
+    model.auxiliary_ac_keys = {"piper_left_arm": ["actions_joints"]}
+    model.loss_weights = {}
+    shared, joints = _ShapeRecordingHead(), _ShapeRecordingHead()
+    model.heads = {"shared": shared, "piper_left_arm_actions_joints": joints}
+
+    def _forward_features(self, domain, data):
+        return torch.zeros(1, 1, 4), []
+
+    model.forward_features = types.MethodType(_forward_features, model)
+    data = {"action": torch.zeros(1, 100, 9), "actions_joints": torch.zeros(1, 30, 7)}
+    loss = model.compute_loss({"domain": "piper_left_arm", "data": data})
+
+    assert torch.isfinite(loss)
+    assert shared.shapes == [(1, 100, 9)]
+    assert joints.shapes == [(1, 30, 7)]

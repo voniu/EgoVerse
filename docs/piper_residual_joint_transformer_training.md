@@ -45,8 +45,15 @@ The Piper Residual Joint Transformer loader expects these logical fields:
 | front RGB | `[3,480,640]` | D435IF image |
 | wrist RGB | `[3,480,640]` | D405 image |
 | joint state | `[7]` | six radians plus gripper opening |
-| Cartesian action | `[30,9]` | xyz plus rotation-6D |
-| joint action | `[30,7]` | six radians plus binary gripper |
+| Cartesian action | `[100,9]` | xyz plus rotation-6D, 30 frames resampled for the shared pose head |
+| joint action | `[30,7]` | six radians plus binary gripper, native 30 Hz frames |
+
+Joint and gripper labels are used at their recorded frames. Earlier versions
+resampled them to 100 points and picked 30 rounded indices back, which shifted
+joint labels by up to 0.14 frame and moved 14 of 30 gripper labels one frame
+early; checkpoints from that contract keep loading, but retrain to use the
+native labels. Normalization statistics are per timestep, so recompute them
+after this change.
 
 `lerobot_to_zarr.py` converts a Piper LeRobot v3 episode. Its required
 calibration files are specific to the robot and cameras used during collection:
@@ -225,5 +232,6 @@ pytest -q \
   egomimic/models/test_residual_joint_transformer.py \
   egomimic/models/test_residual_joint_transformer_keyed.py \
   egomimic/robot/piper/test_gripper_utils.py \
-  egomimic/robot/piper/test_rollout_joint.py
+  egomimic/robot/piper/test_rollout_joint.py \
+  egomimic/algo/test_hpt_multihead_loss.py
 ```

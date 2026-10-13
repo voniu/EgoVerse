@@ -5,9 +5,7 @@ import numpy as np
 from egomimic.rldb.embodiment.embodiment import Embodiment
 from egomimic.rldb.zarr.action_chunk_transforms import (
     ConcatKeys,
-    InterpolateLinear,
     InterpolatePose,
-    InterpolateStep,
     Transform,
     XYZWXYZ_to_XYZ6D,
 )
@@ -96,17 +94,12 @@ class PiperResidualJoint(Embodiment):
                     ),
                 ]
             )
+        # Joint and gripper labels stay at the native 30 Hz frames. Resampling to
+        # MODEL_HORIZON and picking 30 rounded indices back shifts joint labels by
+        # up to 0.14 frame and moves 14 of 30 gripper labels one frame early.
         transforms.extend(
             [
                 BinaryGripperIntent(),
-                InterpolateLinear(
-                    MODEL_HORIZON, "right.cmd_joints", "right.cmd_joints"
-                ),
-                InterpolateStep(
-                    MODEL_HORIZON,
-                    "right.cmd_gripper_binary",
-                    "right.cmd_gripper_binary",
-                ),
                 ConcatKeys(
                     ["right.cmd_joints", "right.cmd_gripper_binary"],
                     "actions_joints",

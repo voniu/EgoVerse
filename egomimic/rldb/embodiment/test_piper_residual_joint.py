@@ -31,9 +31,27 @@ def test_piper_mixed_shapes_and_binary_gripper():
     }
     result = _apply(batch, PiperResidualJoint.get_transform_list(mixed=True))
     assert result["actions_cartesian_pose"].shape == (100, 9)
-    assert result["actions_joints"].shape == (100, 7)
+    assert result["actions_joints"].shape == (30, 7)
     assert result["observations.state.joints"].shape == (7,)
     assert set(np.unique(result["actions_joints"][:, 6])) <= {0.0, 1.0}
+
+
+def test_piper_joint_and_gripper_labels_are_native_frames():
+    raw = np.zeros((30, 7), dtype=np.float32)
+    raw[1::2, 6] = 100.0  # alternate every frame: any resampling would show
+    joints = np.arange(30 * 6, dtype=np.float32).reshape(30, 6)
+    batch = {
+        "right.cmd_ee_pose": _poses(30),
+        "right.cmd_joints": joints.copy(),
+        "source.action": raw,
+        "right.obs_joints": np.zeros(6, dtype=np.float32),
+        "right.obs_gripper": np.array([0.1], dtype=np.float32),
+    }
+    result = _apply(batch, PiperResidualJoint.get_transform_list(mixed=True))
+    np.testing.assert_array_equal(result["actions_joints"][:, :6], joints)
+    np.testing.assert_array_equal(
+        result["actions_joints"][:, 6], (np.arange(30) % 2 == 1).astype(np.float32)
+    )
 
 
 def test_aria_shared_pose_shapes():
