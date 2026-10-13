@@ -59,3 +59,34 @@ def test_apply_joint_limits_rejects_large_overshoot() -> None:
         apply_joint_limits(
             target, bounds, tolerance_deg=3.0, allow_small_overshoot=True
         )
+
+
+class _RecordingPiper:
+    def __init__(self):
+        self.gripper_calls = []
+
+    def GripperCtrl(self, *args):
+        self.gripper_calls.append(args)
+
+
+def test_send_gripper_uses_configured_effort() -> None:
+    from types import SimpleNamespace
+
+    from egomimic.robot.piper.robot_interface import PiperHardware
+
+    robot = object.__new__(PiperHardware)
+    robot.piper = _RecordingPiper()
+    robot.controlling = True
+    robot.gripper_effort = 3000
+    robot.geometry = SimpleNamespace(grip_scale=1e-6)
+
+    robot.send_gripper(0.05)
+
+    assert robot.piper.gripper_calls == [(50000, 3000, 0x01, 0)]
+
+
+def test_gripper_effort_is_validated_before_connecting() -> None:
+    from egomimic.robot.piper.robot_interface import PiperHardware
+
+    with pytest.raises(ValueError, match="gripper_effort"):
+        PiperHardware(geometry=None, gripper_effort=6000)

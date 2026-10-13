@@ -124,7 +124,13 @@ class PiperHardware:
         port="can_follower",
         wrist_serial="427622273943",
         use_cameras=True,
+        gripper_effort=1000,
     ):
+        # GripperCtrl effort in SDK units of 0.001 N*m (0..5000). Match the
+        # teleoperation value the demonstrations were recorded with.
+        if not 0 <= int(gripper_effort) <= 5000:
+            raise ValueError("gripper_effort must lie in 0..5000 (0.001 N*m)")
+        self.gripper_effort = int(gripper_effort)
         from piper_sdk import C_PiperInterface_V2
 
         self.geometry = geometry
@@ -250,7 +256,7 @@ class PiperHardware:
                     f"Piper control startup timed out: {status}, enabled={enabled}"
                 )
             time.sleep(0.02)
-        self.piper.GripperCtrl(int(raw[6]), 1000, 0x01, 0)
+        self.piper.GripperCtrl(int(raw[6]), self.gripper_effort, 0x01, 0)
 
     def control_status(self):
         status = self.piper.GetArmStatus().arm_status
@@ -283,7 +289,10 @@ class PiperHardware:
             raise RuntimeError("Control has not been started")
         # Piper L nominal physical stroke: 100mm; opening is in meters, not binary.
         self.piper.GripperCtrl(
-            int(np.clip(opening, 0, 0.1) / self.geometry.grip_scale), 1000, 0x01, 0
+            int(np.clip(opening, 0, 0.1) / self.geometry.grip_scale),
+            self.gripper_effort,
+            0x01,
+            0,
         )
 
     def set_speed_percent(self, speed_percent):

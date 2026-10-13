@@ -277,6 +277,12 @@ def main():
     parser.add_argument("--port", default="can_follower")
     parser.add_argument("--wrist-serial", default="427622273943")
     parser.add_argument(
+        "--gripper-effort",
+        type=int,
+        default=1000,
+        help="GripperCtrl effort, 0.001 N*m (0..5000); use the teleoperation value",
+    )
+    parser.add_argument(
         "--flow-seed",
         type=int,
         default=0,
@@ -469,7 +475,9 @@ def main():
         )
     )
 
-    robot = PiperHardware(geometry, args.port, args.wrist_serial)
+    robot = PiperHardware(
+        geometry, args.port, args.wrist_serial, gripper_effort=args.gripper_effort
+    )
     counter = 0
     action_step = 0
     history = []
