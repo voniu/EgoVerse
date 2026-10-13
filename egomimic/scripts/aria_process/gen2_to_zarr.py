@@ -26,37 +26,19 @@ def poses(matrices):
     )
 
 
-def interpolate_vio(vio, times, queries):
+def interpolate_poses(matrices, times, good, sessions, queries, max_gap_ns):
     """Interpolate only adjacent valid poses in the same odometry session."""
     right = np.searchsorted(times, queries, side="right").clip(1, len(times) - 1)
     left = right - 1
-    good = np.array(
-        [
-            v.status == VioStatus.VALID and v.pose_quality == TrackingQuality.GOOD
-            for v in vio
-        ]
-    )
-    same_session = np.array(
-        [
-            vio[a].frontend_session_uid == vio[b].frontend_session_uid
-            for a, b in zip(left, right)
-        ]
-    )
     valid = (
         good[left]
         & good[right]
-        & same_session
+        & (sessions[left] == sessions[right])
         & (queries >= times[0])
         & (queries <= times[-1])
-        & ((times[right] - times[left]) <= 150_000_000)
+        & ((times[right] - times[left]) <= max_gap_ns)
     )
     result = np.repeat(np.eye(4)[None], len(queries), axis=0)
-    matrices = np.array(
-        [
-            (v.transform_odometry_bodyimu @ v.transform_bodyimu_device).to_matrix()
-            for v in vio
-        ]
-    )
     for i in np.flatnonzero(valid):
         a, b = left[i], right[i]
         alpha = float(queries[i] - times[a]) / float(times[b] - times[a])
@@ -67,18 +49,77 @@ def interpolate_vio(vio, times, queries):
     return result, valid
 
 
+def interpolate_vio(vio, times, queries):
+    """10 Hz on-device VIO; record gaps up to 150 ms are bridged."""
+    good = np.array(
+        [
+            v.status == VioStatus.VALID and v.pose_quality == TrackingQuality.GOOD
+            for v in vio
+        ]
+    )
+    sessions = np.array([str(v.frontend_session_uid) for v in vio])
+    matrices = np.array(
+        [
+            (v.transform_odometry_bodyimu @ v.transform_bodyimu_device).to_matrix()
+            for v in vio
+        ]
+    )
+    return interpolate_poses(matrices, times, good, sessions, queries, 150_000_000)
+
+
+def read_vio_high_freq(provider):
+    """800 Hz on-device VIO in the same odometry frame as the 10 Hz stream."""
+    stream = provider.get_stream_id_from_label("vio_high_frequency")
+    samples = [
+        provider.get_vio_high_freq_data_by_index(stream, i)
+        for i in range(provider.get_num_data(stream))
+    ]
+    times = np.asarray(
+        [round(v.tracking_timestamp.total_seconds() * 1e9) for v in samples],
+        dtype=np.int64,
+    )
+    order = np.argsort(times, kind="stable")
+    samples = [samples[i] for i in order]
+    return samples, times[order]
+
+
+def interpolate_vio_high_freq(samples, times, queries):
+    good = np.array([v.quality_score >= HIGH_FREQ_MIN_QUALITY for v in samples])
+    sessions = np.array([str(v.session_uid) for v in samples])
+    matrices = np.array([v.transform_odometry_device.to_matrix() for v in samples])
+    return interpolate_poses(matrices, times, good, sessions, queries, 50_000_000)
+
+
+HIGH_FREQ_MIN_QUALITY = 0.5
+
+
 def project(points, K):
     pixels = points @ K.T
     return pixels[:, :2] / pixels[:, 2:3]
 
 
-def convert(path, output, alignment=None):
+def convert(
+    path,
+    output,
+    alignment=None,
+    task_name="Put bear into basket",
+    vio_source="vio",
+):
     provider, ids, times, hands, hand_times, vio, vio_times = read_tracking(path)
     nearest = nearest_indices(hand_times, times)
-    world_device, vio_valid = interpolate_vio(vio, vio_times, times)
-    world_device_hand, hand_vio_valid = interpolate_vio(
-        vio, vio_times, hand_times[nearest]
-    )
+    if vio_source == "high_frequency":
+        samples, sample_times = read_vio_high_freq(provider)
+
+        def interpolate(queries):
+            return interpolate_vio_high_freq(samples, sample_times, queries)
+
+    else:
+
+        def interpolate(queries):
+            return interpolate_vio(vio, vio_times, queries)
+
+    world_device, vio_valid = interpolate(times)
+    world_device_hand, hand_vio_valid = interpolate(hand_times[nearest])
     confidence = np.array(
         [
             hands[i].left_hand.confidence if hands[i].left_hand is not None else 0.0
@@ -92,7 +133,7 @@ def convert(path, output, alignment=None):
         & (abs(hand_times[nearest] - times) <= 25_000_000)
     )
     runs = valid_runs(valid)
-    start, end = max(runs, key=lambda run: run[1] - run[0])
+    start, end = max(runs, key=lambda run: run[1] - run[0], default=(0, 0))
     assert (
         end - start >= 30
     ), "No continuous segment with a complete 30-frame action chunk"
@@ -227,8 +268,8 @@ def convert(path, output, alignment=None):
         },
         embodiment="human_left_arm",
         fps=30,
-        task_name="Put bear into basket",
-        annotations=[("Put bear into basket", 0, end - start)],
+        task_name=task_name,
+        annotations=[(task_name, 0, end - start)],
         intrinsics={"front_1": np.column_stack((K, np.zeros(3)))},
         metadata_override={
             "source_vrs": str(path),
@@ -236,6 +277,7 @@ def convert(path, output, alignment=None):
             "source_frame_range_exclusive": [start, end],
             "source_measured_fps": fps,
             "tracking_source": "gen2_on_device_hand_and_vio_not_cloud_mps",
+            "vio_source": vio_source,
             "pose_frame": "odometry",
             "head_pose_frame": "odometry_T_rectified_rgb_optical",
             "pose_origin": "left_palm",
@@ -274,6 +316,17 @@ if __name__ == "__main__":
     parser.add_argument("vrs", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
+        "--task-name",
+        default="Put bear into basket",
+        help="Task name and whole-episode language annotation",
+    )
+    parser.add_argument(
+        "--vio-source",
+        choices=["vio", "high_frequency"],
+        default="vio",
+        help="On-device pose stream: 10 Hz vio or 800 Hz vio_high_frequency",
+    )
+    parser.add_argument(
         "--alignment",
         type=Path,
         help="Fixed R_wrist_tool JSON; omit for native wrist axes",
@@ -287,14 +340,22 @@ if __name__ == "__main__":
             np.linalg.det(alignment), 1
         ), "Alignment must be a proper rotation"
     paths = sorted(args.vrs.glob("*.vrs")) if args.vrs.is_dir() else [args.vrs]
-    reports = []
+    reports, failures = [], []
     for path in paths:
-        reports.append(convert(path, args.output, alignment))
+        try:
+            reports.append(
+                convert(path, args.output, alignment, args.task_name, args.vio_source)
+            )
+        except (AssertionError, FileExistsError) as error:
+            print("SKIPPED", path, repr(error), flush=True)
+            failures.append({"source": str(path), "error": repr(error)})
+        args.output.mkdir(parents=True, exist_ok=True)
         (args.output / "manifest.json").write_text(
             json.dumps(
                 {
                     "complete": len(reports) == len(paths),
                     "episodes": reports,
+                    "failures": failures,
                     "orientation_alignment_applied": alignment is not None,
                 },
                 indent=2,
