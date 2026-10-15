@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>夹爪中心标注</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66;
+    --line: #dcdcd6; --accent: #2f6fdb; --left: #e0533d; --right: #2a9d5c;
+    --mid: #f2b705; --model: #b23cd9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161615; --panel: #1f1f1d; --text: #ecece8; --muted: #9a9a93;
+      --line: #34342f; --accent: #6c9cf0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap;
+           padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; }
+  .muted { color: var(--muted); }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; padding: 16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .stage { position: relative; background: #000; border-radius: 6px; overflow: hidden; }
+  canvas { display: block; width: 100%; height: auto; cursor: crosshair; }
+  #lens { position: absolute; width: 180px; height: 180px; border: 2px solid var(--accent);
+          border-radius: 50%; pointer-events: none; display: none; overflow: hidden;
+          box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  aside { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+  aside h2 { font-size: 14px; margin: 0 0 8px; }
+  .step { padding: 6px 8px; border-radius: 4px; margin-bottom: 4px; }
+  .step.active { background: color-mix(in srgb, var(--accent) 15%, transparent); font-weight: 600; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  button { font: inherit; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--line);
+           background: var(--bg); color: var(--text); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+  .meta { font-size: 12px; font-variant-numeric: tabular-nums; }
+  #strip { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 8px; }
+  #strip span { width: 14px; height: 14px; border-radius: 2px; background: var(--line); cursor: pointer; }
+  #strip span.done { background: var(--right); }
+  #strip span.skip { background: var(--muted); }
+  #strip span.cur { outline: 2px solid var(--accent); }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+  #status { font-size: 12px; min-height: 18px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>夹爪中心标注</h1>
+  <span class="muted" id="progress"></span>
+  <span class="muted" id="status"></span>
+</header>
+<main>
+  <div class="stage">
+    <canvas id="cv" width="640" height="480"></canvas>
+    <div id="lens"><canvas id="lensCv" width="180" height="180"></canvas></div>
+  </div>
+  <aside>
+    <h2>本帧</h2>
+    <div class="step" id="s1"><span class="dot" style="background:var(--left)"></span>1. 点击<b>左</b>指垫中心（画面左侧那根手指）</div>
+    <div class="step" id="s2"><span class="dot" style="background:var(--right)"></span>2. 点击<b>右</b>指垫中心</div>
+    <div class="step" id="s3"><span class="dot" style="background:var(--mid)"></span>完成：中点即夹爪中心</div>
+    <div class="row">
+      <button id="undo">撤销 <kbd>Z</kbd></button>
+      <button id="skip">看不清/跳过 <kbd>S</kbd></button>
+    </div>
+    <div class="row">
+      <button id="prev">上一帧 <kbd>←</kbd></button>
+      <button id="next">下一帧 <kbd>→</kbd></button>
+    </div>
+    <label class="row"><input type="checkbox" id="showModel"> 显示模型投影（<span style="color:var(--model)">紫色</span>，标完再看）</label>
+    <div class="meta muted" id="meta"></div>
+    <div id="strip"></div>
+    <p class="muted" style="font-size:12px">指尖被线圈、工件挡住时点可见部分的中心；两指都看不清就跳过。鼠标悬停有放大镜。标注自动保存。</p>
+  </aside>
+</main>
+<script>
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const lens = document.getElementById("lens"), lctx = document.getElementById("lensCv").getContext("2d");
+let frames = [], labels = {}, cur = 0, img = new Image();
+
+async function load() {
+  frames = await (await fetch("frames.json")).json();
+  labels = await (await fetch("/labels")).json();
+  const first = frames.findIndex(f => !labels[f.id]);
+  cur = first < 0 ? 0 : first;
+  buildStrip(); show();
+}
+function save() {
+  fetch("/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(labels) })
+    .then(r => r.json()).then(j => status(`已保存 ${j.saved} 帧`))
+    .catch(() => status("保存失败，请检查本地服务"));
+}
+function status(t) { document.getElementById("status").textContent = t; }
+function rec() { return labels[frames[cur].id]; }
+function buildStrip() {
+  const s = document.getElementById("strip"); s.innerHTML = "";
+  frames.forEach((f, i) => {
+    const e = document.createElement("span");
+    const l = labels[f.id];
+    e.className = (l && l.skip ? "skip" : l && l.right ? "done" : "") + (i === cur ? " cur" : "");
+    e.title = f.id; e.onclick = () => { cur = i; show(); };
+    s.appendChild(e);
+  });
+  const done = frames.filter(f => labels[f.id] && (labels[f.id].right || labels[f.id].skip)).length;
+  const labelled = frames.filter(f => labels[f.id] && labels[f.id].right).length;
+  document.getElementById("progress").textContent =
+    `已标 ${labelled} 帧（目标 25，够了即可停）· 已处理 ${done} / ${frames.length}`;
+}
+function show() {
+  img = new Image(); img.onload = draw; img.src = `frames/${frames[cur].id}.jpg`;
+  const f = frames[cur];
+  document.getElementById("meta").textContent =
+    `${f.episode} #${f.frame} · 深度 ${f.depth_m.toFixed(2)} m · 开口 ${(f.gripper_m * 1000).toFixed(0)} mm`;
+  buildStrip();
+}
+function mark(p, color, r = 5) {
+  ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 2 * Math.PI);
+  ctx.lineWidth = 2; ctx.strokeStyle = color; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(p[0] - r - 3, p[1]); ctx.lineTo(p[0] + r + 3, p[1]);
+  ctx.moveTo(p[0], p[1] - r - 3); ctx.lineTo(p[0], p[1] + r + 3); ctx.stroke();
+}
+function css(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function draw() {
+  ctx.drawImage(img, 0, 0);
+  const l = rec() || {};
+  if (l.left) mark(l.left, css("--left"));
+  if (l.right) mark(l.right, css("--right"));
+  if (l.left && l.right) {
+    ctx.beginPath(); ctx.moveTo(...l.left); ctx.lineTo(...l.right);
+    ctx.strokeStyle = css("--mid"); ctx.lineWidth = 1; ctx.stroke();
+    mark([(l.left[0] + l.right[0]) / 2, (l.left[1] + l.right[1]) / 2], css("--mid"), 3);
+  }
+  if (document.getElementById("showModel").checked) {
+    const f = frames[cur]; mark([f.proj_u, f.proj_v], css("--model"), 4);
+  }
+  if (l.skip) { ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillRect(0, 0, 640, 30);
+    ctx.fillStyle = "#fff"; ctx.font = "14px system-ui"; ctx.fillText("已跳过", 10, 20); }
+  const step = !l.left ? 1 : !l.right ? 2 : 3;
+  [1, 2, 3].forEach(i => document.getElementById("s" + i).classList.toggle("active", i === step && !l.skip));
+}
+function toImage(ev) {
+  const r = cv.getBoundingClientRect();
+  return [(ev.clientX - r.left) * 640 / r.width, (ev.clientY - r.top) * 480 / r.height];
+}
+cv.addEventListener("click", ev => {
+  const p = toImage(ev).map(v => Math.round(v * 10) / 10);
+  const id = frames[cur].id; const l = labels[id] && !labels[id].skip ? labels[id] : {};
+  if (!l.left) l.left = p; else if (!l.right) l.right = p; else return;
+  labels[id] = l; draw();
+  if (l.right) { save(); buildStrip(); setTimeout(() => go(1), 250); }
+});
+cv.addEventListener("mousemove", ev => {
+  const [x, y] = toImage(ev), r = cv.getBoundingClientRect();
+  lens.style.display = "block";
+  lens.style.left = (ev.clientX - r.left + 20) + "px"; lens.style.top = (ev.clientY - r.top - 200) + "px";
+  lctx.imageSmoothingEnabled = false;
+  lctx.drawImage(cv, x - 22.5, y - 22.5, 45, 45, 0, 0, 180, 180);
+  lctx.strokeStyle = "#fff"; lctx.beginPath(); lctx.moveTo(90, 80); lctx.lineTo(90, 100);
+  lctx.moveTo(80, 90); lctx.lineTo(100, 90); lctx.stroke();
+});
+cv.addEventListener("mouseleave", () => lens.style.display = "none");
+function go(d) { cur = Math.min(frames.length - 1, Math.max(0, cur + d)); show(); }
+function undo() {
+  const id = frames[cur].id, l = labels[id]; if (!l) return;
+  if (l.skip || !l.right) delete labels[id]; else delete l.right;
+  if (labels[id] && !labels[id].left) delete labels[id];
+  save(); draw(); buildStrip();
+}
+function skip() { labels[frames[cur].id] = { skip: true }; save(); buildStrip(); go(1); }
+document.getElementById("undo").onclick = undo;
+document.getElementById("skip").onclick = skip;
+document.getElementById("prev").onclick = () => go(-1);
+document.getElementById("next").onclick = () => go(1);
+document.getElementById("showModel").onchange = draw;
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft") go(-1); else if (e.key === "ArrowRight") go(1);
+  else if (e.key === "z" || e.key === "Z") undo(); else if (e.key === "s" || e.key === "S") skip();
+});
+load();
+</script>
+</body>
+</html>
