@@ -9,10 +9,10 @@ import cv2
 import numpy as np
 import pyarrow.parquet as pq
 import simplejpeg
-import yaml
 from scipy.spatial.transform import Rotation
 
 from egomimic.rldb.zarr.zarr_writer import ZarrWriter
+from egomimic.robot.piper.config import load_config
 from egomimic.robot.piper_kinematics import PiperKinematics
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -117,7 +117,7 @@ def write_preview(path, encoded, obs, cmd, K, fps):
                     cv2.line(image, tuple(uv[0]), tuple(uv[j + 1]), color, 2)
             cv2.putText(
                 image,
-                f"{i}/{len(encoded)-1}  green:state  orange:command",
+                f"{i}/{len(encoded) - 1}  green:state  orange:command",
                 (12, 24),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.55,
@@ -136,7 +136,7 @@ def write_preview(path, encoded, obs, cmd, K, fps):
 
 
 def convert(args):
-    cfg = yaml.safe_load(args.calibration.read_text())
+    cfg = load_config(args.calibration)
     limits = json.loads(args.action_calibration.read_text())
     wrist = json.loads(args.wrist_intrinsics.read_text())
     info = json.loads((args.dataset / "meta/info.json").read_text())
@@ -298,7 +298,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--calibration",
         type=Path,
-        default=ROOT / "egomimic/robot/piper/calibration.yaml",
+        required=True,
+        help="Setup file of the recording setup (front camera intrinsics and "
+        "hand-eye extrinsics); see docs/piper_setup.md",
     )
     parser.add_argument("--action-calibration", type=Path, required=True)
     parser.add_argument("--wrist-intrinsics", type=Path, required=True)

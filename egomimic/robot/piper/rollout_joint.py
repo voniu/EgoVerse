@@ -9,17 +9,10 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from egomimic.robot.piper.robot_interface import (
-    CALIBRATION,
-    ROOT,
-    Geometry,
-    PiperHardware,
-)
+from egomimic.robot.piper.robot_interface import ROOT, Geometry, PiperHardware
 from egomimic.scripts.piper_process.evaluate_full import DOMAIN, load_model
 from egomimic.scripts.piper_process.evaluate_joint_heads import JOINT_ACTION
 from egomimic.utils.provenance import run_record, sha256
-
-INITIAL_POSE = Path(__file__).with_name("initial_pose.json")
 
 
 class JointPolicy:
@@ -298,14 +291,16 @@ def open_start_gripper(robot, geometry, target_mm, tolerance_mm, timeout_s):
 
 def main():
     parser = argparse.ArgumentParser(__doc__)
+    parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument(
-        "--checkpoint",
+        "--calibration",
         type=Path,
-        default=ROOT / ".local_calibration/hpc/joint/checkpoints/a/best.ckpt",
+        help="Setup file with the cameras (default: $PIPER_SETUP); see docs/piper_setup.md",
     )
-    parser.add_argument("--calibration", type=Path, default=CALIBRATION)
     parser.add_argument("--port", default="can_follower")
-    parser.add_argument("--wrist-serial", default="427622273943")
+    parser.add_argument(
+        "--wrist-serial", help="Override cameras.d405.serial of the setup file"
+    )
     parser.add_argument(
         "--gripper-effort",
         type=int,
@@ -320,7 +315,11 @@ def main():
     )
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--speed-percent", type=int, default=30)
-    parser.add_argument("--initial-pose", type=Path, default=INITIAL_POSE)
+    parser.add_argument(
+        "--initial-pose",
+        type=Path,
+        help="Start pose JSON (initial_pose.py); required with --initialize",
+    )
     parser.add_argument(
         "--initialize",
         action="store_true",
@@ -469,7 +468,12 @@ def main():
             "control-hz must be positive, save-every must be nonnegative"
         )
 
-    geometry = Geometry(args.calibration)
+    if args.initialize and args.initial_pose is None:
+        parser.error("--initialize needs --initial-pose")
+    try:
+        geometry = Geometry(args.calibration, require_cameras=True)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
     initial_target = None
     if args.initialize:
         initial_target = load_initial_pose(args.initial_pose)

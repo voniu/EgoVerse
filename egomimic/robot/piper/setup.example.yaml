@@ -1,0 +1,27 @@
+# Template for one Piper L setup (robot + cameras + scene). Copy it outside the repository
+# (e.g. .local_calibration/setups/<name>/setup.yaml, which is git-ignored) and fill it with
+# the procedure in docs/piper_setup.md. Values here are merged over piper_l.yaml.
+# Pass it with --calibration or export PIPER_SETUP=/path/to/setup.yaml.
+
+cameras:
+  d435if:                       # fixed front camera
+    serial: '<serial>'          # realsense_setup.py lists connected cameras
+    intrinsics:                 # realsense_setup.py --write fills this block
+      width: 640
+      height: 480
+      K: null
+      distortion_model: null
+      distortion_coefficients: null
+    extrinsics:                 # hand-eye result T_base_camera (eye-on-base)
+      parent_frame: base_link
+      child_frame: d435if_color_optical_frame
+      source: '<tool and date>'
+      translation_m: null
+      quaternion_xyzw: null
+  d405:                         # wrist camera
+    serial: '<serial>'
+
+# Optional overrides of piper_l.yaml. A TCP / joint-zero correction fitted with
+# tcp_calibration/fit_tcp.py is NOT put here: keep it as its own correction JSON for
+# apply_pose_correction and any IK. feedback_to_model changes the model's joint input,
+# so change it only if the raw SDK feedback convention itself differs.

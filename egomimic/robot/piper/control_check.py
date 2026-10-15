@@ -7,12 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from egomimic.robot.piper.robot_interface import (
-    CALIBRATION,
-    ROOT,
-    Geometry,
-    PiperHardware,
-)
+from egomimic.robot.piper.robot_interface import ROOT, Geometry, PiperHardware
 
 
 def move_joint(robot, geometry, target, opening, joint, timeout, log, phase):
@@ -110,7 +105,11 @@ def main():
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--hold-seconds", type=float, default=1.0)
     parser.add_argument("--port", default="can_follower")
-    parser.add_argument("--calibration", type=Path, default=CALIBRATION)
+    parser.add_argument(
+        "--calibration",
+        type=Path,
+        help="Setup file (default: $PIPER_SETUP); see docs/piper_setup.md",
+    )
     parser.add_argument(
         "--output",
         type=Path,

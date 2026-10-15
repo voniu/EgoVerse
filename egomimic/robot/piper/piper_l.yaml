@@ -1,24 +1,11 @@
+# Piper L robot-model constants shared by every setup (no device- or scene-specific values).
 # Units: meters, radians. Quaternions: [x, y, z, w].
 # Transforms map child coordinates into parent coordinates.
 # URDF path is relative to the repository root.
 # Raw feedback only: q_model = signs * radians(q_raw * degrees_per_raw_joint_unit) + offsets_rad
-# Sources and conventions: docs/calibration/piper_parameters.md
+# A setup file (setup.example.yaml) adds the cameras and may override tcp or kinematics,
+# e.g. with a fitted TCP correction. Sources and conventions: docs/calibration/piper_parameters.md
 
-cameras:
-  d435if:
-    serial: '327122075831'
-    intrinsics:
-      width: 640
-      height: 480
-      K:
-      - [607.70166015625, 0.0, 330.5779724121094]
-      - [0.0, 607.6002807617188, 249.32542419433594]
-      - [0.0, 0.0, 1.0]
-      distortion_model: inverse_brown_conrady
-      distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]
-  d405:
-    serial: '427622273943'
-    intrinsics_file: egomimic/robot/piper/d405_intrinsics_640x480.json
 tcp:
   parent_frame: link6
   child_frame: piper_tcp

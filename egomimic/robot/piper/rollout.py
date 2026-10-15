@@ -8,12 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from egomimic.robot.piper.robot_interface import (
-    CALIBRATION,
-    ROOT,
-    Geometry,
-    PiperHardware,
-)
+from egomimic.robot.piper.robot_interface import ROOT, Geometry, PiperHardware
 from egomimic.scripts.piper_process.evaluate_full import ACTION, DOMAIN, load_model
 from egomimic.utils.provenance import run_record, sha256
 
@@ -70,14 +65,16 @@ class MLPPolicy:
 
 def main():
     parser = argparse.ArgumentParser(__doc__)
+    parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument(
-        "--checkpoint",
+        "--calibration",
         type=Path,
-        default=ROOT / ".local_calibration/hpc/mlp/checkpoints/a/final.ckpt",
+        help="Setup file (default: $PIPER_SETUP); see docs/piper_setup.md",
     )
-    parser.add_argument("--calibration", type=Path, default=CALIBRATION)
     parser.add_argument("--port", default="can_follower")
-    parser.add_argument("--wrist-serial", default="427622273943")
+    parser.add_argument(
+        "--wrist-serial", help="Override cameras.d405.serial of the setup file"
+    )
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--speed-percent", type=int, default=10)
     parser.add_argument(
@@ -101,7 +98,12 @@ def main():
         parser.error(
             "speed-percent:1..100, query-every:1..30, duration must be positive"
         )
-    geometry = Geometry(args.calibration)
+    try:
+        geometry = Geometry(args.calibration, require_cameras=True)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
+    if geometry.base_camera is None:
+        parser.error("Cartesian rollout needs cameras.d435if.extrinsics in the setup")
     policy = MLPPolicy(args.checkpoint)
     # Warm up CUDA before connecting to hardware or enabling motors.
     policy.predict(
@@ -180,7 +182,7 @@ def main():
                     seed = q
                     time.sleep(max(0, 1 / 30 - (time.monotonic() - tick)))
                 print(
-                    f"query {counter}: inference {inference_ms:.0f}ms, first xyz {chunk[0,:3].round(3)}, gripper {chunk[0,6]*1000:.1f}mm",
+                    f"query {counter}: inference {inference_ms:.0f}ms, first xyz {chunk[0, :3].round(3)}, gripper {chunk[0, 6] * 1000:.1f}mm",
                     flush=True,
                 )
                 counter += 1

@@ -23,18 +23,17 @@ from pathlib import Path
 import numpy as np
 import simplejpeg
 import torch
-import yaml
 import zarr
 
+from egomimic.robot.piper.config import load_config
 from egomimic.robot.piper.rollout_joint import JointPolicy
 from egomimic.robot.piper_kinematics import PiperKinematics
 
 ROOT = Path(__file__).resolve().parents[3]
-CALIBRATION = ROOT / "egomimic/robot/piper/calibration.yaml"
 
 
-def tcp_fk(calibration_path):
-    config = yaml.safe_load(Path(calibration_path).read_text())
+def tcp_fk(calibration_path=None):
+    config = load_config(calibration_path)
     fk = PiperKinematics(ROOT / config["kinematics"]["reference_urdf_path"])
     tcp = np.r_[config["tcp"]["translation_m"], 1.0]
 
@@ -75,7 +74,11 @@ def main():
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument("--episodes", type=int, nargs="+", required=True)
-    parser.add_argument("--calibration", type=Path, default=CALIBRATION)
+    parser.add_argument(
+        "--calibration",
+        type=Path,
+        help="Setup file (default: $PIPER_SETUP, else robot-model constants)",
+    )
     parser.add_argument("--stride", type=int, default=10)
     parser.add_argument(
         "--window", type=int, default=150, help="frames before the event"

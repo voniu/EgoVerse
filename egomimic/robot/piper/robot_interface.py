@@ -5,14 +5,13 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
-import yaml
 from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
+from egomimic.robot.piper.config import check_cameras, load_config
 from egomimic.robot.piper_kinematics import PiperKinematics
 
 ROOT = Path(__file__).resolve().parents[3]
-CALIBRATION = Path(__file__).with_name("calibration.yaml")
 
 
 def transform(spec):
@@ -23,8 +22,9 @@ def transform(spec):
 
 
 class Geometry:
-    def __init__(self, calibration=CALIBRATION):
-        self.config = yaml.safe_load(Path(calibration).read_text())
+    def __init__(self, calibration=None, require_cameras=False):
+        """calibration: setup file (else $PIPER_SETUP, else robot-model constants)."""
+        self.config = load_config(calibration, require_cameras)
         k = self.config["kinematics"]
         self.signs = np.asarray(k["feedback_to_model"]["signs"])
         self.offsets = np.asarray(k["feedback_to_model"]["offsets_rad"])
@@ -32,9 +32,13 @@ class Geometry:
         self.grip_scale = k["recorded_sdk_feedback"]["gripper_mm_per_raw_unit"] / 1000
         urdf = ROOT / k["reference_urdf_path"]
         self.fk = PiperKinematics(urdf)
-        front_extrinsics = self.config["cameras"]["d435if"].get("extrinsics")
+        front_extrinsics = ((self.config.get("cameras") or {}).get("d435if") or {}).get(
+            "extrinsics"
+        ) or {}
         self.base_camera = (
-            transform(front_extrinsics) if front_extrinsics is not None else None
+            transform(front_extrinsics)
+            if front_extrinsics.get("translation_m") is not None
+            else None
         )
         self.link_tcp = transform(self.config["tcp"])
         root = ET.parse(urdf).getroot()
@@ -122,7 +126,7 @@ class PiperHardware:
         self,
         geometry,
         port="can_follower",
-        wrist_serial="427622273943",
+        wrist_serial=None,
         use_cameras=True,
         gripper_effort=1000,
     ):
@@ -131,6 +135,8 @@ class PiperHardware:
         if not 0 <= int(gripper_effort) <= 5000:
             raise ValueError("gripper_effort must lie in 0..5000 (0.001 N*m)")
         self.gripper_effort = int(gripper_effort)
+        if use_cameras:
+            check_cameras(geometry.config)
         from piper_sdk import C_PiperInterface_V2
 
         self.geometry = geometry
@@ -149,9 +155,10 @@ class PiperHardware:
             if use_cameras:
                 import pyrealsense2 as rs
 
+                cameras = geometry.config["cameras"]
                 for serial in [
-                    geometry.config["cameras"]["d435if"]["serial"],
-                    wrist_serial,
+                    cameras["d435if"]["serial"],
+                    wrist_serial or cameras["d405"]["serial"],
                 ]:
                     pipeline, config = rs.pipeline(), rs.config()
                     config.enable_device(serial)

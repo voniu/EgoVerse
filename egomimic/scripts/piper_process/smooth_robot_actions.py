@@ -5,16 +5,15 @@ import json
 from pathlib import Path
 
 import numpy as np
-import yaml
 import zarr
 from scipy.ndimage import median_filter
 from scipy.signal import savgol_filter
 from scipy.spatial.transform import Rotation
 
+from egomimic.robot.piper.config import load_config
 from egomimic.robot.piper_kinematics import PiperKinematics
 
 ROOT = Path(__file__).resolve().parents[3]
-CALIBRATION = ROOT / "egomimic/robot/piper/calibration.yaml"
 
 
 def transform(spec):
@@ -76,7 +75,12 @@ def percentiles(values):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, required=True)
-    parser.add_argument("--calibration", type=Path, default=CALIBRATION)
+    parser.add_argument(
+        "--calibration",
+        type=Path,
+        help="Setup file (default: $PIPER_SETUP, else robot-model constants); "
+        "must match the kinematics used for the pose labels",
+    )
     parser.add_argument("--joint-window", type=int, default=9)
     parser.add_argument("--gripper-window", type=int, default=5)
     parser.add_argument("--report", type=Path)
@@ -88,7 +92,7 @@ def main():
     ):
         parser.error("smoothing windows must be odd and at least 3")
 
-    config = yaml.safe_load(args.calibration.read_text())
+    config = load_config(args.calibration)
     kinematics = config["kinematics"]
     fk = PiperKinematics(ROOT / kinematics["reference_urdf_path"])
     tcp = transform(config["tcp"])

@@ -1,9 +1,0 @@
-{
-  "Put_bear_into_basket_7_20260919_162728.vrs": {
-    "status": "accepted_by_user",
-    "kept_source_range_exclusive": [38, 127],
-    "start": "Hand has just contacted the bear; grasp not yet completed.",
-    "end": "Release after placing the bear in the basket is fully retained.",
-    "decision": "Keep this episode."
-  }
-}
