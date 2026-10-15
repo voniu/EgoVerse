@@ -18,13 +18,11 @@ B 配置继承 A 的网络与训练参数，仅增加人类域。这里的“双
 
 ## 数据和对比约定
 
-- Piper 与 A 使用完全相同的 63 条训练、7 条验证划分（22,406 / 2,381 帧）。
-- Aria 为 45 条训练、5 条验证（7,546 / 837 帧），不按帧随机拆分。
-- 第 7 条裁剪已经用户确认：有效段开始时尚未完成抓握，结束前已完全松手，保留使用。
-- 正式配置每步 8 个机器人样本 + 8 个人类样本，短 loader 循环采样。
-  与 A 保持相同机器人样本数/步和 10,000 步预算，B 的总数据量及计算量更大。
+- Piper 使用与 A 完全相同的训练/验证 episode 划分。
+- Aria 按 episode 划分训练/验证，不按帧随机拆分。人类片段的裁剪需人工确认包含完整任务过程。
+- 正式配置每步一个机器人 batch + 一个同大小的人类 batch，较短的 loader 循环采样。
+  与 A 保持相同机器人样本数/步和训练步数预算，B 的总数据量及计算量更大。
 - 目标为 `(robot_loss + human_loss) / 2`，沿用当前 HPT 的两域平均损失。
-  本轮不额外启用 OT 等损失。
 - 单独记录两个域的验证损失，B 按 `Valid/piper_right_arm_loss` 保存最佳模型。
   A 的单域 `Valid/action_loss` 就是机器人损失。B 的平均损失不能直接与 A 比较。
 - 归一化各域独立、仅使用各自训练集全部帧。机器人统计应与 A 相同。
@@ -42,7 +40,7 @@ source emimic/bin/activate
 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 python -m egomimic.trainHydra \
   --config-name train_piper_human_smoke \
   norm_stats.num_workers=4 \
-  hydra.run.dir=.local_calibration/training/piper_b_smoke_initial
+  hydra.run.dir=<smoke_run_dir>
 ```
 
 smoke 使用每域 batch=2、10 次参数更新、1 个联合验证 batch。
@@ -53,20 +51,7 @@ smoke 使用每域 batch=2、10 次参数更新、1 个联合验证 batch。
 
 ```bash
 python -m egomimic.trainHydra --config-name train_piper_human \
-  norm_stats.precomputed_norm_path=.local_calibration/training/piper_b_smoke_initial/norm_stats/norm_stats.json
+  norm_stats.precomputed_norm_path=<smoke_run_dir>/norm_stats/norm_stats.json
 ```
 
-上述正式训练命令仅供后续使用，不代表已经启动正式 B。若变更数据、划分或动作表示，
-应重新计算统计。HPC 需先申请 GPU，并覆盖机器人和人类数据路径至集群实际位置。
-
-## 本次检查结果
-
-本机 RTX 4090 完成 10 步双域训练和一次联合验证，两个域损失均有限；
-最佳及最后 checkpoint 已保存。机器人归一化参数与 A 的已保存统计逐项完全一致。
-使用正确统计缓存恢复至第 11 步成功，双动作头输出维度分别为 7、6。
-恢复仅额外跑一步，未到下一轮验证，所以 Lightning 提示该轮没有新的选模指标；
-初次 10 步运行的验证和最佳 checkpoint 正常。
-
-报告：`.local_calibration/training/piper_b_smoke_initial/smoke_check.json`。
-恢复运行：`.local_calibration/training/piper_b_smoke_resume_verified`。
-这些 loss 只用于确认训练流程，不应作为 A/B 实验结论。
+若变更数据、划分或动作表示，应重新计算统计。在集群上运行时需覆盖机器人和人类数据路径。

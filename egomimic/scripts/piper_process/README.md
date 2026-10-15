@@ -20,8 +20,8 @@
 ```bash
 source emimic/bin/activate
 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/piper_mpl python -m egomimic.scripts.piper_process.check_batch \
-  .local_calibration/piper_all/teddy_0912_1_episode_000.zarr \
-  --report .local_calibration/piper_all/batch_check.json
+  <piper_zarr_dir>/<episode>.zarr \
+  --report <piper_zarr_dir>/batch_check.json
 ```
 
 该检查核对 RGB 与当前帧一致、位姿单位和旋转矩阵、指令起始时间、末尾填充及归一化统计键映射，不代表模型已训练或几何投影误差已消除。
@@ -33,17 +33,17 @@ MPLBACKEND=Agg MPLCONFIGDIR=/tmp/piper_mpl python -m egomimic.scripts.piper_proc
 ```bash
 source emimic/bin/activate
 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/piper_mpl python -m egomimic.scripts.piper_process.lerobot_to_zarr \
-  --dataset /mnt/wd10/zekun/data/Data_Collect/teddy_0912_1 \
+  --dataset <lerobot_dataset> \
   --episode 0 \
-  --output outputs/piper_pilot \
-  --calibration /path/to/current_piper.yaml \
-  --action-calibration /home/master-ht/.cache/huggingface/lerobot/calibration/robots/piper/my_piper_follower.json \
-  --wrist-intrinsics egomimic/robot/piper/d405_intrinsics_640x480.json
+  --output <piper_zarr_dir> \
+  --calibration <setup.yaml> \
+  --action-calibration <follower_calibration.json> \
+  --wrist-intrinsics <d405_intrinsics.json>
 ```
 
 输出已存在时停止，不覆盖。当前支持一条 episode 的数值数据和每路视频各自落在单个文件中的布局，使用 v3 元数据定位 episode，按视频时间戳截取，保持原图 640×480。
-`current_piper.yaml` 需包含采集时有效的 D435IF `T_base_camera`；仓库不保存当前平台的
-D435IF 外参。
+`<setup.yaml>` 需包含采集时有效的前视内参和 D435IF `T_base_camera`；三个本地文件的得出方法见
+[`docs/piper_setup.md`](../../../docs/piper_setup.md)。
 
 ## 数据含义
 
@@ -65,14 +65,6 @@ D435IF 外参。
 
 视频时间戳匹配只验证文件索引对应，不代表已经测量相机与关节传感器的真实采样延迟。投影图用于检查明显错位，不是独立的毫米级外参测量。
 
-## 首条试转换结果
-
-`teddy_0912_1` 的 episode 0 有 451 帧。已用工程 `ZarrEpisode` 回读，核对原始状态/动作保存、目标关节反归一化、相机与基座位姿往返，并解码两路共 902 张图像。
-
-投影预览中部分帧的反馈 TCP 与可见夹爪中心存在明显偏差，尚未定位原因；因此目前是格式及读取流程打通，不代表几何已验收。60.1% 的反馈 TCP 投影位于画面内，这个比例本身不是准确率。回读时基座与相机坐标往返的位置最大误差为 3.31e-8 m（仅表示数值一致性），视频时间索引最大误差为 4.45e-7 s。
-
-此次临时 Zarr、视频、图片和回读报告已按用户要求清理。上述命令可重新生成 Zarr、投影预览及转换报告；回读检查是此次额外执行的检查，不是转换命令自动生成的报告。先解释投影差异，再批量转换；不自动改动用户已确认的相机外参或添加旧的零位补偿。
-
 ## A 组训练配置
 
 在工程根目录激活 `source emimic/bin/activate` 后运行。
@@ -91,9 +83,8 @@ python -m egomimic.trainHydra --config-name train_piper
 训练集归一化统计、CSV loss 和 `checkpoints/last.ckpt`。
 首次运行 ResNet18 会使用 ImageNet 权重缓存，缓存缺失时需要下载。
 
-70 条 episode 按 seed=42 固定划分为 63 条训练和 7 条验证，不按帧拆分。
-当前 A 实际参与梯度训练的是 63 条；B 必须沿用同一机器人划分。
-归一化使用训练集全部帧。若最终改为全部 70 条训练，应另设验证数据并同步修改 A/B。
+机器人数据按 episode 固定随机划分训练和验证（seed 固定），不按帧拆分；对照组必须沿用
+同一划分。归一化统计只用训练集帧。
 
 输入为 D435IF、D405 各一帧 RGB 和 7 维 TCP 状态；模型内将图像缩放至
 224×224，磁盘图像及其标定参数不变。状态/动作均为 D435IF 光学坐标系中的
@@ -104,7 +95,7 @@ HPT 从头训练，图像编码器使用 ImageNet 初始化。后续 B 应保持
 小规模检查分两步：先确认有限 loss、参数更新、动作形状 `[B,30,7]`、保存与恢复；
 再固定少量 episode 做数百步过拟合检查，观察 loss 趋势与预测轨迹。
 10 步通过只代表训练链路可用，不代表抓取成功率已得到验证。
-当前 smoke 配置仍加载同一 63/7 划分，只减少 batch 和更新次数。
+smoke 配置使用同一划分，只减少 batch 和更新次数。
 
 恢复检查示例（将路径换为实际运行目录）：
 
@@ -117,11 +108,4 @@ python -m egomimic.trainHydra --config-name train_piper_smoke \
 
 CPU 可检查链路：追加 `trainer.accelerator=cpu trainer.precision=32-true`。
 单卡从 batch=2 开始，确认显存余量再增加 batch。
-本机 RTX 4090 已完成 10 步 smoke：43,700,615 参数，batch=2、BF16 mixed，
-PyTorch 峰值 allocated 0.856 GiB、reserved 0.900 GiB（不含 CUDA context 等进程额外占用）。
-验证 loss 有限，checkpoint 重载后的动作形状为 `[2,30,7]` 且全部有限。
-这只覆盖当前小 batch，不等于正式训练或后续 B 的显存测量。
-报告位于 `.local_calibration/training/piper_gpu_smoke/{memory,checkpoint_check}.json`。
-恢复训练也已验证：从 step 10 到 11，优化器 step=11、权重发生更新且全部有限。
-对应报告为 `.local_calibration/training/piper_gpu_resume/resume_check.json`。
 如在 Slurm 集群运行，应先申请 GPU allocation。

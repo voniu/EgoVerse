@@ -47,11 +47,11 @@ Human只有Cartesian pose监督，不产生虚构的Piper关节标签。`piper_h
 |A + MLP双头|`train_piper_a_joint_mlp.yaml`|
 |B + MLP双头|`train_piper_b_joint_mlp.yaml`|
 
-数据配置为`piper_joint.yaml`和`piper_human_joint.yaml`；模型配置为`hpt_piper_joint_{flow,mlp}.yaml`及相应human版本。A组FM/MLP均已完成短训练、反向传播、final checkpoint保存和单轨迹评估链路检查；B组MLP也已完成双域联合反向传播检查，四份Hydra配置均可完整组合。该检查只证明链路可运行，随机/单步权重的误差没有模型效果含义。
+数据配置为`piper_joint.yaml`和`piper_human_joint.yaml`；模型配置为`hpt_piper_joint_{flow,mlp}.yaml`及相应human版本。新配置先用短训练检查反向传播、final checkpoint保存和评估链路；这类检查只证明链路可运行，随机/单步权重的误差没有模型效果含义。
 
 ## 评估
 
-`evaluate_joint_heads.py`在固定7条验证轨迹上报告：
+`evaluate_joint_heads.py`在固定验证集轨迹上报告：
 
 - 六关节第一步/整段MAE与整段RMSE（deg）；
 - 预测关节FK后的TCP位置/朝向误差；
@@ -63,12 +63,14 @@ Human只有Cartesian pose监督，不产生虚构的Piper关节标签。`piper_h
 
 ```bash
 python -m egomimic.scripts.piper_process.evaluate_joint_heads \
-  --checkpoint PATH/final.ckpt \
-  --output .local_calibration/joint_eval/VARIANT
+  --checkpoint <checkpoint> \
+  --dataset <piper_zarr_dir> \
+  --split <split.json> \
+  --output <joint_eval_dir>
 ```
 
 FM保留多个推理seed；MLP为确定性。推理seed不能当作独立训练seed。正式比较至少包含：旧pose-only FM/MLP离线Cartesian结果、四个新A/B×FM/MLP关节头结果，以及最终真机成功率。关节头与旧模型的输入表示和监督任务均有变化，不能把差值全部归因于“绕开IK”。
 
-训练建议先保持原有10000步预算，以完整7条验证轨迹选模；若曲线仍明显下降，再把同一预注册配置延长到30000步。不要直接采用参考图中的100步时域或30000步结论：本项目数据是30Hz、当前动作段30步，变更时域会同时改变任务和算力。
+训练建议先保持原有训练预算，以完整验证集选模；若曲线仍明显下降，再把同一预注册配置延长。不要直接照搬参考工作中的动作时域或训练步数：本项目数据是30Hz、动作段30步，变更时域会同时改变任务和算力。
 
 checkpoint选择以直接部署目标为主：关节RMSE、FK位置误差、夹爪F1和越界率；pose head作为共享表征的约束与Human离线指标单独报告。最终指标仍是每条轨迹多次真机抓取成功率，离线关节误差不能替代闭环实验。

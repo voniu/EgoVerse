@@ -58,32 +58,32 @@ after this change.
 The robot label of the shared pose head is selected with `pose_label`:
 `cmd` (default, leader command, as in earlier runs) or `obs` (observed follower
 pose, matching the human label, which is observed hand motion). The follower
-lags the leader by about 2-4 frames. Select it with
+lags the leader by a few frames. Select it with
 `data.train_datasets.piper_right_arm.resolver.key_map.pose_label=obs`; the
 validation split follows the training value. The joint head always learns the
 commands.
 
-`lerobot_to_zarr.py` converts a Piper LeRobot v3 episode. Its required
-calibration files are specific to the robot and cameras used during collection:
+`lerobot_to_zarr.py` converts a Piper LeRobot v3 episode. Its three input files
+are specific to the robot, cameras and scene used during collection; derive them
+with the procedure in [`docs/piper_setup.md`](piper_setup.md):
 
 ```bash
 python -m egomimic.scripts.piper_process.lerobot_to_zarr \
-  --dataset /data/lerobot/task_01 \
+  --dataset <lerobot_dataset> \
   --episode 0 \
-  --output /data/piper_zarr \
-  --calibration /calibration/current_piper.yaml \
-  --action-calibration /calibration/piper_follower.json \
-  --wrist-intrinsics egomimic/robot/piper/d405_intrinsics_640x480.json
+  --output <piper_zarr_dir> \
+  --calibration <setup.yaml> \
+  --action-calibration <follower_calibration.json> \
+  --wrist-intrinsics <d405_intrinsics.json>
 ```
 
-The checked-in D405 file is the factory calibration for serial
-`427622273943` at 640×480 RGB with zero image rotation. Use a freshly read
-profile when the camera, stream resolution, crop, or rotation changes. A
-mounting change affects camera extrinsics, not these intrinsic parameters.
-The Residual Joint Transformer consumes D405 RGB directly and does not need a
-D405-to-wrist transform. The repository does not contain D435IF extrinsics;
-conversion must receive the `T_base_camera` that was valid during collection
-through `--calibration`.
+The D405 intrinsics are the factory calibration of the wrist camera at
+640×480 RGB with zero image rotation (`realsense_setup.py write`). Read them
+again when the camera, stream resolution, crop, or rotation changes; a mounting
+change affects extrinsics, not intrinsics. The Residual Joint Transformer
+consumes D405 RGB directly and does not need a D405-to-wrist transform. The
+setup file must hold the D435IF `T_base_camera` that was valid during
+collection.
 
 After conversion, add the Residual Joint Transformer open/closed target once:
 
@@ -249,6 +249,9 @@ pytest -q \
   egomimic/models/test_residual_joint_transformer_keyed.py \
   egomimic/robot/piper/test_gripper_utils.py \
   egomimic/robot/piper/test_rollout_joint.py \
+  egomimic/robot/piper/test_config.py \
+  egomimic/robot/piper/test_setup_tools.py \
+  egomimic/scripts/piper_process/tcp_calibration/test_fit_tcp.py \
   egomimic/algo/test_hpt_multihead_loss.py \
   egomimic/scripts/piper_process/test_smooth_robot_actions.py
 ```

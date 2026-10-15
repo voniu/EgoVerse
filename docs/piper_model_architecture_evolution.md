@@ -127,7 +127,7 @@ flowchart LR
 
 这套结构与 Ego 数据的关系最自然，因为人手轨迹与机器人末端轨迹都能表达成 pose。然而它把一个关键难题留到了部署阶段：同一条连续 EE pose 曲线经过逐帧 IK 后，可能发生不可达、局部解跳变或接近奇异位形。模型的 Cartesian 预测即使视觉上平滑，也不保证关节轨迹连续。
 
-我们早期遇到的 `IK cannot reach target` 和关节解不连续，正来自这条“模型输出 pose、控制器再求 IK”的接口。
+`IK cannot reach target` 和关节解不连续这类部署问题，正来自这条“模型输出 pose、控制器再求 IK”的接口。
 
 ---
 
@@ -167,7 +167,7 @@ HPT features [B,30,256]
 \mathcal L_{MLP}=\frac{1}{BHD}\sum(\hat A-A)^2.
 \]
 
-它是确定性的，推理快，曾在 A 组上观察到较顺滑的完整抓取。但 flatten 后一次生成整段轨迹，head 本身没有显式速度、加速度、jerk 或 FK 约束，也没有把“当前关节状态”作为残差基准。
+它是确定性的，推理快。但 flatten 后一次生成整段轨迹，head 本身没有显式速度、加速度、jerk 或 FK 约束，也没有把“当前关节状态”作为残差基准。
 
 ### 4.2 Flow Matching 版本
 
@@ -272,12 +272,12 @@ flowchart LR
     IDX --> EXEC[部署控制<br/>30 points at 30 Hz]
 ```
 
-这里的 100 点不代表 100 个 30 Hz 控制周期。早期部署曾误把前 30/100 点按 30 Hz 执行，导致动作被拉慢约 3.3 倍。目前 rollout 已恢复为 30 个真实控制点再发送。
+这里的 100 点不代表 100 个 30 Hz 控制周期；若把 100 点接口的前 30 点按 30 Hz 执行，动作会被拉慢约 3.3 倍。rollout 发送的是 30 个真实控制点。
 
-更新：关节与夹爪标签现在直接使用原生 30 帧，不再经过 30→100→30。由于 99/29 不是整数，
-旧路径按取整索引取回 30 点时，关节标签有最多 0.14 帧的交替时间偏移（额外引入的三阶差分与真实
-jerk 同量级），夹爪标签有 14/30 个点取到前一帧。100 点网格现在只用于共享 9D pose head；
-joint head 的 `action_horizon` 与 `control_horizon` 都为 30，部署也不再做索引选取。
+关节与夹爪标签直接使用原生 30 帧，不经过 30→100→30。由于 99/29 不是整数，
+按取整索引从 100 点取回 30 点会给关节标签带来最多约 0.14 帧的交替时间偏移（会额外引入三阶差分），
+夹爪标签也会有部分点取到前一帧。因此 100 点网格只用于共享 9D pose head；
+joint head 的 `action_horizon` 与 `control_horizon` 都为 30，部署不做索引选取。
 
 ### 5.3 当前共享 pose head
 
@@ -370,14 +370,9 @@ Residual Joint Transformer 显式匹配 A/B 的机器人目标：
 
 ## 7. 数据量和每个训练 step 看到了什么
 
-当前本地数据为：
+数据按 episode 划分：Piper 分为训练、验证和留出测试集；Aria 左手分为训练和验证集。
 
-| 数据域 | 总 episode | 当前训练 | 当前验证 | 留出/测试 |
-|---|---:|---:|---:|---:|
-| Piper | 70 | 50 | 10 | 10 |
-| Aria left hand | 50 | 约 45 | 约 5 | — |
-
-A 每个优化 step 取一个 Piper batch，batch size 为 8。B 每个优化 step 分别取一个 Piper batch 和一个 Human batch，每域 batch size 都为 8。两者都训练 30k steps，使用 AdamW、初始学习率 `3e-5`、cosine 衰减到 `3e-6`、BF16。
+A 每个优化 step 取一个 Piper batch，batch size 为 8。B 每个优化 step 分别取一个 Piper batch 和一个 Human batch，每域 batch size 都为 8。两者使用相同的训练步数和优化设置（AdamW、cosine 学习率衰减、BF16），具体数值见训练配置。
 
 ```mermaid
 flowchart TB
@@ -405,7 +400,7 @@ flowchart TB
 | HPT action memory | 30×256 | 64×256 |
 | Joint head | Flatten MLP 或 FM CrossTransformer | 30-query residual Transformer decoder |
 | 关节输出 | 绝对关节角 | 当前关节 + 有界残差 |
-| Joint chunk | 30×7 | 原生 30×7（2026-10-13 起；此前训练接口 100×7、部署取回 30×7，见 §5.2） |
+| Joint chunk | 30×7 | 原生 30×7（不经过 100 点接口，见 §5.2） |
 | 夹爪 | 连续开度回归 | 独立二值分类 |
 | 平滑约束 | 无显式约束 | 位置、速度、加速度、jerk |
 | 物理约束 | 仅数据空间误差 | 加入 URDF FK position/rotation |
@@ -417,7 +412,7 @@ flowchart TB
 
 ---
 
-## 9. 为什么当前模型更容易完成任务
+## 9. 设计动机：为什么残差结构更适合 Piper 控制
 
 当前改进的作用不是来自单一模块，而是几个变化相互配合。
 
@@ -431,31 +426,22 @@ flowchart TB
 
 第五，共享 9D pose head 将 Ego 数据的贡献限制在几何表征层。Human 数据不需要伪造 Piper 关节标签；Piper joint head 也不会被人手的 embodiment-specific kinematics 直接监督。
 
-这与当前真机现象一致：A、B 都已经大致能够完成任务，主要剩余问题集中在起始边界附近的坐标/限位冲突，而不是 IK 失败或整段轨迹完全无关。
-
 ---
 
-## 10. 当前起始抖动不是 Residual Joint Transformer 网络结构本身的问题
+## 10. 关节零点与限位：模型之外的坐标一致性
 
-近期日志显示，训练/SDK 坐标允许 J2 到 `−2.1°`、J3 到 `+2.0°`，而 URDF 与驱动器 nominal limits 分别是：
-
-```text
-J2: 0° … 180°
-J3: −170° … 0°
-```
-
-模型输出落在训练分布边缘后，部署层若裁剪，会把多帧不同预测都压成 `J2=0°、J3=0°`；若放行，则由驱动器固件决定是否接受。这是 **policy coordinate、SDK coordinate 与 URDF coordinate 的零点一致性问题**。
+训练标签来自 SDK 反馈与指令的坐标，部署时的限位检查依据 URDF 与驱动器的 nominal limits。若两者的关节零点或范围不一致，训练分布边缘（例如限位附近）的预测在部署层会被裁剪成同一个值，或由驱动器固件决定是否接受，表现为起始附近的抖动或卡住。这是 **policy coordinate、SDK coordinate 与 URDF coordinate 的零点一致性问题**。
 
 它位于模型输出之后：
 
 ```mermaid
 flowchart LR
-    M[Residual Joint Transformer prediction<br/>policy coordinates] --> C[Coordinate conversion<br/>currently assumed identity]
+    M[Residual Joint Transformer prediction<br/>policy coordinates] --> C[Coordinate conversion<br/>feedback_to_model in piper_l.yaml / setup]
     C --> L[URDF / firmware limit check]
     L --> SDK[Piper SDK command]
 ```
 
-因此不应把起始抖动反推成“Transformer 不如 MLP”或“Ego 数据造成动作错误”。后续应单独核验 J2/J3 的关节零点转换，并保持 A/B 使用同一转换进行比较。
+因此不应把这类边界现象反推成 head 结构或 Ego 数据的问题。应单独核验关节零点转换（`piper_l.yaml` 的 `kinematics.feedback_to_model`，可在 setup 文件中覆盖），并保持 A/B 使用同一转换进行比较。
 
 ---
 

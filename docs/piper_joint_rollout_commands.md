@@ -1,13 +1,24 @@
 # Piper Joint Head deployment commands
 
-All commands use the same deployment settings. Run one command at a time from the
+`egomimic.robot.piper.rollout_joint` runs any joint-head checkpoint (MLP, FM,
+or residual joint transformer) on the Piper. Run one rollout at a time from the
 repository root after activating `emimic`.
 
-## 1. A + MLP (raw actions, best step 5300)
+## Setup file
+
+Robot-model constants are in `egomimic/robot/piper/piper_l.yaml`. Each physical
+setup (camera serials, intrinsics, hand-eye extrinsics, optional TCP or joint
+zero corrections) lives in a separate file created from
+`egomimic/robot/piper/setup.example.yaml` outside the repository. Pass it with
+`--calibration <setup.yaml>` or `export PIPER_SETUP=<setup.yaml>`; the full
+procedure is in [piper_setup.md](piper_setup.md).
+
+## Command template
 
 ```bash
 python -m egomimic.robot.piper.rollout_joint \
-  --checkpoint .local_calibration/hpc/joint/checkpoints/a/best.ckpt \
+  --checkpoint <checkpoint> \
+  --calibration <setup.yaml> \
   --flow-seed 0 \
   --execute \
   --duration 30 \
@@ -21,128 +32,17 @@ python -m egomimic.robot.piper.rollout_joint \
   --joint-limit-tolerance-deg 15
 ```
 
-## 2. B + MLP (raw actions, best step 4100)
+- Without `--execute` the script runs inference only and sends no commands.
+- `--flow-seed` fixes FM sampling and is ignored by deterministic checkpoints.
+- `--control-hz` must match the training trajectories (30 Hz).
+- `--max-chunk-displacement-deg`, `--max-command-step-deg` and
+  `--joint-limit-tolerance-deg` are safety gates; the values above are looser
+  than the script defaults. Check `--help` before changing them.
+- To start from a recorded pose, add `--initialize --initial-pose <start_pose.json>`
+  (created with `egomimic.robot.piper.initial_pose`).
+- Each rollout writes to a new timestamped directory under
+  `.local_calibration/rollouts_joint/` (override with `--output`, never reuse
+  one); it records source provenance, checkpoint step and SHA256.
 
-```bash
-python -m egomimic.robot.piper.rollout_joint \
-  --checkpoint .local_calibration/hpc/joint/checkpoints/b/best.ckpt \
-  --flow-seed 0 \
-  --execute \
-  --duration 30 \
-  --execution-mode chunk \
-  --chunk-size 30 \
-  --speed-percent 30 \
-  --control-hz 30 \
-  --save-every 10 \
-  --max-chunk-displacement-deg 70 \
-  --max-command-step-deg 15 \
-  --joint-limit-tolerance-deg 15
-```
-
-## 3. A + FM (raw actions, best step 9600)
-
-```bash
-python -m egomimic.robot.piper.rollout_joint \
-  --checkpoint .local_calibration/hpc/joint/checkpoints/a/flow_best.ckpt \
-  --flow-seed 0 \
-  --execute \
-  --duration 30 \
-  --execution-mode chunk \
-  --chunk-size 30 \
-  --speed-percent 30 \
-  --control-hz 30 \
-  --save-every 10 \
-  --max-chunk-displacement-deg 70 \
-  --max-command-step-deg 15 \
-  --joint-limit-tolerance-deg 15
-```
-
-## 4. B + FM (raw actions, best step 9800)
-
-```bash
-python -m egomimic.robot.piper.rollout_joint \
-  --checkpoint .local_calibration/hpc/joint/checkpoints/b/flow_best.ckpt \
-  --flow-seed 0 \
-  --execute \
-  --duration 30 \
-  --execution-mode chunk \
-  --chunk-size 30 \
-  --speed-percent 30 \
-  --control-hz 30 \
-  --save-every 10 \
-  --max-chunk-displacement-deg 70 \
-  --max-command-step-deg 15 \
-  --joint-limit-tolerance-deg 15
-```
-
-## 5. A + MLP Smooth v1 (best step 6700)
-
-```bash
-python -m egomimic.robot.piper.rollout_joint \
-  --checkpoint .local_calibration/hpc/joint_smooth_v1/checkpoints/a/mlp/best.ckpt \
-  --flow-seed 0 \
-  --execute \
-  --duration 30 \
-  --execution-mode chunk \
-  --chunk-size 30 \
-  --speed-percent 30 \
-  --control-hz 30 \
-  --save-every 10 \
-  --max-chunk-displacement-deg 70 \
-  --max-command-step-deg 15 \
-  --joint-limit-tolerance-deg 15
-```
-
-## 6. A + FM Smooth v1 (best step 9600)
-
-```bash
-python -m egomimic.robot.piper.rollout_joint \
-  --checkpoint .local_calibration/hpc/joint_smooth_v1/checkpoints/a/flow/best.ckpt \
-  --flow-seed 0 \
-  --execute \
-  --duration 30 \
-  --execution-mode chunk \
-  --chunk-size 30 \
-  --speed-percent 30 \
-  --control-hz 30 \
-  --save-every 10 \
-  --max-chunk-displacement-deg 70 \
-  --max-command-step-deg 15 \
-  --joint-limit-tolerance-deg 15
-```
-
-## 7. A + FM Extended (about 17,100 cumulative updates)
-
-```bash
-python -m egomimic.robot.piper.rollout_joint \
-  --checkpoint .local_calibration/hpc/joint_flow_extend/checkpoints/a/best.ckpt \
-  --flow-seed 0 \
-  --execute \
-  --duration 30 \
-  --execution-mode chunk \
-  --chunk-size 30 \
-  --speed-percent 30 \
-  --control-hz 30 \
-  --save-every 10 \
-  --max-chunk-displacement-deg 70 \
-  --max-command-step-deg 15 \
-  --joint-limit-tolerance-deg 15
-```
-
-## 8. B + FM Extended (about 16,000 cumulative updates)
-
-```bash
-python -m egomimic.robot.piper.rollout_joint \
-  --checkpoint .local_calibration/hpc/joint_flow_extend/checkpoints/b/best.ckpt \
-  --flow-seed 0 \
-  --execute \
-  --duration 30 \
-  --execution-mode chunk \
-  --chunk-size 30 \
-  --speed-percent 30 \
-  --control-hz 30 \
-  --save-every 10 \
-  --max-chunk-displacement-deg 70 \
-  --max-command-step-deg 15 \
-  --joint-limit-tolerance-deg 15
-```
+When comparing checkpoints (A/B, MLP/FM), keep every flag identical and change
+only `--checkpoint`.

@@ -1,207 +1,114 @@
-# Piper L：MLP 部署
+# Piper L 部署
 
-使用现有无状态历史的 MLP A/B checkpoint。A 默认使用10000步 `final.ckpt`。
+本目录是 Piper L 的实机部署代码。每个场景的本地参数（相机序列号、内参、手眼外参、
+起始姿态）不在仓库中，按 [`docs/piper_setup.md`](../../../docs/piper_setup.md) 得出，并用
+`--calibration <setup.yaml>`（或环境变量 `PIPER_SETUP`）传入。机型常数在 `piper_l.yaml`，
+约定见 [`docs/calibration/piper_parameters.md`](../../../docs/calibration/piper_parameters.md)。
 
-输入：D435IF与腕部D405当前RGB（640×480），原始SDK关节反馈经过URDF FK与标定得到的当前TCP相机坐标状态 `[xyz, yaw,pitch,roll, gripper]`，共7维。单位米/弧度。图像缩放、ImageNet归一化、状态归一化均复用checkpoint内的训练配置和统计。
+| 文件 | 作用 |
+|---|---|
+| `config.py`、`piper_l.yaml`、`setup.example.yaml` | 机型常数 + 本地 setup 的合并加载 |
+| `robot_interface.py` | 关节/夹爪单位换算、FK/IK、SDK 与 RealSense 接口 |
+| `rollout_joint.py` | 关节输出模型（MLP / FM / 残差关节头）的部署 |
+| `rollout.py` | 笛卡尔 TCP 输出模型的部署（IK，需要前视外参） |
+| `control_check.py` | 不加载模型的控制链往返检查 |
+| `realsense_setup.py`、`initial_pose.py` | 得出相机参数与起始姿态（见设置流程） |
 
-输出：`30×7` TCP动作段，逐步转换为基座坐标并做数值IK。IK以当前关节角开始，段内以上一解为初值；SDK接收0.001度关节命令和0.001mm夹爪开口。夹爪保持连续开度，限定在Piper L物理行程0–100mm，不改成二值信号。此版本没有关节输出神经网络头。
-
-## 启动
-
-在工程根目录执行。退出遥操和其他占用两台相机／发送follower命令的程序，将机器人与物体摆到示范中的开始位置；由现场人员准备急停。脚本不会自动归位。相机和基座须保持原标定位置。
-
-```bash
-cd /mnt/wd10/zekun/code/EgoVerse
-source emimic/bin/activate
-export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
-```
-
-默认不发送任何运动指令，可先检查图像、反馈、模型输出和IK：
-
-```bash
-python -m egomimic.robot.piper.rollout --duration 5
-```
-
-正式执行MLP A，SDK速度10%，30秒后结束：
-
-```bash
-python -m egomimic.robot.piper.rollout \
-  --execute --speed-percent 10 --duration 30 --query-every 1
-```
-
-切换到MLP B仅更换checkpoint：
-
-```bash
-python -m egomimic.robot.piper.rollout \
-  --checkpoint .local_calibration/hpc/mlp/checkpoints/b/final.ckpt \
-  --execute --speed-percent 10 --duration 30 --query-every 1
-```
-
-参数说明：
-
-- `--speed-percent 10`：SDK关节运动速度百分比，不等于末端固定线速度。没有额外关节增量限速或轨迹平滑。
-- `--query-every 1`：每次观察后只执行预测的第一步，然后使用最新反馈和图像重新规划。该值也是默认值。增大该值会开环执行动作段，实机上可能遇到后续姿态不可达或累积误差；推理、相机读取、日志与IK都有耗时，因此实际频率低于30Hz。
-- `--port can_follower`，腕部序列号默认`427622273943`，主相机序列号从`calibration.yaml`读取。
-- `--duration`：包括推理与发送的运行时间。结束、Ctrl+C或异常时，执行模式会发送SDK快速停止`EmergencyStop(0x01)`，不会调用失能、归零或自动回家。下一次执行会先发送恢复指令，再重新使能并检查CAN控制状态。
-
-连接时强制把 follower 设为固件层的 slave/output 角色，进入MOVE-J后预置当前关节位置，再发送连续绝对关节目标。基本有效性检查仅拒绝过期反馈、非有限输出，以及IK无法满足的目标（位置残差超过5mm或姿态残差超过3度）；IK在URDF关节范围内求解。没有桌面、障碍物或自碰撞模型，低速也不替代现场观察。
-
-## 日志与离线检查
-
-每次运行保存到 `.local_calibration/rollouts/时间戳/`：
-
-- `config.json`：checkpoint、执行速度、查询间隔等。
-- `query_*.npz`：两路原始RGB、硬件反馈、模型输入状态、完整30步预测。
-- `commands.jsonl`：各步TCP目标、IK关节解、残差、耗时及是否发送。
-
-离线核对，不连接机械臂：
-
-```bash
-python -m egomimic.robot.piper.evaluate
-```
-
-此检查覆盖部署推理与已有A/B评估的一致性、已知姿态的FK/IK往返、模型预测姿态的可达性，以及SDK发送单位。报告位于 `.local_calibration/deployment_check.json`。离线通过不代表已验证实机抓取成功或IK全程连续。
-
-当前离线结果：A/B各3帧的部署预测与已有评估在浮点容差内一致；20个已知关节姿态的FK/IK往返最大位置残差约0.0001mm，发送单位检查通过。所抽取6个动作段的前10步中，51/60个满足IK精度要求，9个未满足，均出现在近零位的第0帧动作段（A4个、B5个）。这不是全面可达性保证，也不说明目标全局无解；当前局部求解器在这些输入上未达标。执行时若出现此问题，日志会保留模型目标和报错，不会把该解发送给机器人。
-
-2026-09-29完成3秒实机闭环检查，日志为`.local_calibration/rollouts/20260929_014948`。逐帧重规划共发送23条命令，TCP净移动80.4mm，最大单次反馈关节变化2.41度，IK最大残差2.92mm/2.74度，无超限退出。该检查验证了SDK控制链和短时闭环运行，不等同于完整抓取成功率测试。
-
-## Joint Head A/B × MLP/FM
-
-Joint Head 使用相同的两路 RGB，状态改为当前硬件关节位置和夹爪开度
-`[q1..q6(rad), gripper(m)]`，直接输出 `30×7` 绝对关节目标。部署不经过
-Cartesian pose 或 IK：模型关节坐标根据 calibration 中的符号和零位转换回 SDK
-反馈坐标后发送。默认 checkpoint 是 A+MLP 验证集最佳模型（step 5300）：
-
-```bash
-python -m egomimic.robot.piper.rollout_joint --duration 5
-```
-
-同一入口支持四组 Joint Head checkpoint：
-
-|变体|checkpoint|step|
-|---|---|---:|
-|A+MLP|`.local_calibration/hpc/joint/checkpoints/a/best.ckpt`|5300|
-|B+MLP|`.local_calibration/hpc/joint/checkpoints/b/best.ckpt`|4100|
-|A+FM|`.local_calibration/hpc/joint/checkpoints/a/flow_best.ckpt`|9600|
-|B+FM|`.local_calibration/hpc/joint/checkpoints/b/flow_best.ckpt`|9800|
-
-用 `--checkpoint` 切换。FM以固定 `--flow-seed`（默认0）生成初始噪声，使重复实验可复现；
-MLP为确定性输出。FM沿用训练时的z-score归一化，不应用MLP专用的 `[-1,1]` quantile裁剪。
-
-上述命令只读取相机和 follower 并记录预测。退出遥操、确认场景已摆到示范起始状态并
-准备好急停后，由现场人员执行低速三秒检查：
-
-```bash
-python -m egomimic.robot.piper.rollout_joint \
-  --execute --speed-percent 30 --duration 3 \
-  --execution-mode chunk --chunk-size 30
-```
-
-确认三秒动作方向后，可将 `--duration` 改为 `30`。日志写入
-`.local_calibration/rollouts_joint/时间戳/`，其中保存每次观测、完整动作段、首个目标
-相对当前反馈的关节差和是否实际发送。
-
-默认使用现场人员手动设置的当前姿态，不执行自动回位。显式加入 `--initialize` 后，程序
-才会先以 20% 速度回到 `initial_pose.json` 保存的六关节和夹爪姿态；反馈连续三次进入
-1 度/5mm 容差后，切换到策略速度并开始计算 `--duration`。初始化结果
-逐帧写入 `initialization.jsonl`，成功摘要写入 `initialization.json`；异常或 Ctrl+C
-另存为带运行阶段和 traceback 的 `error.json`。可用 `--init-speed-percent`、`--init-timeout`、
-`--init-joint-tolerance-deg` 和 `--init-gripper-tolerance-mm` 调整。旧参数
-`--skip-initialize` 仍兼容。
-
-保存姿态来自真实反馈；限位附近的反馈可能因零位偏差轻微落在 URDF 范围外。初始化命令
-会先裁剪到 URDF 可命令范围。本机成功首帧中的 J2=-2.387°、J3=+1.994° 因此按
-J2=0°、J3=0°执行，初始化期间每秒打印一次剩余误差。
-
-默认还会拒绝相对当前反馈跨度超过 55 度的预测 chunk，并在命令领先真实关节超过
-30 度时停止。两项阈值分别由 `--max-chunk-displacement-deg` 和
-`--max-tracking-error-deg` 配置。前者只检查本轮实际会执行的 chunk 前缀；触发时会无视
-`--save-every` 设置，保存对应的完整预测 NPZ。初始化姿态取自 `20260929_105005` 的首帧反馈，
-J2/J3 分别位于 13.899°/-9.608°，避开二者的 0°边界。
-
-部署参数均可从命令行调整：
-
-- `--speed-percent`：Piper SDK 速度百分比，默认 30。
-- `--execution-mode ensemble|chunk|time-ensemble`：按推理步计数的时间集成、连续执行
-  一个 chunk 前缀，或按墙钟时间对齐的时间集成（每次推理后按 `--control-hz` 发送
-  `--query-every` 条指令，各 chunk 在当前时刻线性插值后按龄加权）。
-- `--chunk-size 1..30`：chunk 模式中每次重规划前执行的预测步数；等价于
-  `--query-every`。模型本身固定输出 30 步，改变这里不会改变网络结构。
-- `--gripper-effort 0..5000`：夹爪力度（SDK 单位，默认 1000）；应与示教时一致。
-- `--control-hz`：命令发送频率，默认及训练数据频率均为 30Hz。
-- `--tracking-gate-deg`：大于0时，同一个关节目标会保持到真实反馈进入该误差后再
-  推进下一步；等待期间保持当前夹爪开度，避免手臂尚未到达抓取位姿就闭合。
-- `--tracking-gate-timeout`：单个轨迹点等待反馈的最长时间，默认1秒；超时停止本轮。
-- `--ensemble-decay`：ensemble 模式中新旧预测的指数权重衰减。
-- `--save-every`：每隔多少次推理保存一份图像和完整预测，默认 10；设为 0
-  可关闭。保存采用无压缩 NPZ，避免 RGB 压缩阻塞控制循环。
-
-进入执行模式时，程序要求 CAN/MOVE-J 控制状态与六个电机使能连续稳定0.5秒后才启动策略。
-每条命令日志都保存 `ctrl_mode`、`arm_status`、
-`mode_feed`、`motion_status` 和六电机使能状态；控制器离开有效状态会立即停止。
-
-不加载模型的控制链往返检查：
-
-```bash
-python -m egomimic.robot.piper.control_check --execute
-```
-
-默认以 10% 速度让 J1 正向移动 2°，连续三次进入 0.3°误差后返回原角度，并保持1秒。全过程只使用
-SDK绝对关节位置控制，结果写入 `.local_calibration/control_checks/时间戳/`。可用
-`--joint`、`--delta-deg`、`--speed-percent` 和 `--timeout` 调整。
-
-2026-09-29 的只读实机检查使用当前姿态完成 52 次推理，平均推理时间约 16ms，输出
-全部有限且位于 URDF 关节范围内。当前姿态到首个预测目标的最大关节差约 13.4 度，
-主要来自 J5；执行时 SDK 速度百分比限制运动速度，但模型输出仍是绝对位置目标。
-
-URDF 中 J2/J3 的名义边界为 0 度，但本机 follower 标定范围分别延伸到
-J2=-2.1 度、J3=+2.0 度，真实反馈和训练标签会轻微跨过 URDF 边界。Joint rollout
-默认把不超过 3 度的预测越界裁剪回 URDF 边界，超过 3 度仍停止，并在
-`commands.jsonl` 同时记录原预测、实际命令和各关节越界量。
-
-MLP 动作头的最后一层是无界线性层，而训练的 quantile-normalized 动作主要位于
-`[-1,1]`。部署时先把归一化预测裁剪到该区间，限制在各 horizon 的训练动作
-1%–99% 分位范围，再应用 URDF 限位。日志和 NPZ 保留未约束预测、归一化越界量、
-训练分布裁剪结果和最终关节命令。
-
-Joint Head 训练目标是 30 步 action chunk。当前部署默认每步重新预测，并将过去 chunk
-对当前绝对时刻的预测按
-`exp(-0.05 * age)` 加权平均。它既保留旧 chunk 后续的推进信息，也利用新图像修正目标，
-避免只执行 horizon 0 停在 J2/J3 边界，以及每 10 步切换整段目标产生的跳变。旧行为可用
-`--execution-mode chunk --query-every 10` 复现。
-
-70 条机器人示范的初始夹爪开度接近 100mm。执行模式默认要求初始开度至少 90mm；若
-当前夹爪只有约 70mm，模型输入已偏离示范起始分布，容易把它解释为抓取阶段并过早闭合。
-程序进入稳定 CAN 控制后会先以夹爪专用指令张开到 100mm，确认反馈进入 5mm 容差后才
-读取第一帧策略输入。可用 `--start-gripper-mm` 和 `--start-gripper-timeout` 调整；设置
-`--start-gripper-mm 0` 可跳过自动张开。需要有意绕过起始开度检查时可另传
-`--min-start-gripper-mm 0`。
-
-部署附加依赖见 `requirements-deploy.txt`。本工程虚拟环境没有pip时使用：
+部署附加依赖见 `requirements-deploy.txt`：
 
 ```bash
 uv pip install --python emimic/bin/python -r egomimic/robot/piper/requirements-deploy.txt
 ```
 
-## Assembly 任务部署设置（D435IF 前视 + 腕部 D405，2026-10）
+## 安全约定
 
-“Insert the ignition coil into the engine” 的 Residual Joint checkpoint 使用以下设置：
+- 退出遥操和其他占用相机或向 follower 发指令的程序；现场人员准备急停。
+- 不加 `--execute` 时只读：读取相机和反馈、推理并记录，不使能、不运动。
+- 程序不自动回位。结束、Ctrl+C 或异常时，执行模式发送 SDK 快速停止
+  `EmergencyStop(0x01)`，不失能、不归零；下次执行先发恢复指令，再使能并检查 CAN 控制状态。
+- 连接时强制把 follower 设为固件层的输出角色，进入 MOVE-J 后预置当前关节位置，再发送
+  连续绝对关节目标。没有桌面、障碍物或自碰撞模型，低速不能代替现场观察。
+
+## 关节输出模型：`rollout_joint`
+
+输入为前视 D435IF 与腕部 D405 当前 RGB（640×480）以及 `[q1..q6 (rad), gripper (m)]`；
+输出 `30×7` 绝对关节目标（残差关节头为当前关节加有界残差）。部署不经过笛卡尔位姿或 IK，
+模型关节坐标按 setup 中的符号和零位换回 SDK 反馈坐标后发送。图像缩放、ImageNet 归一化、
+状态归一化都复用 checkpoint 内的训练配置和统计。
 
 ```bash
-python -m egomimic.robot.piper.rollout_joint \
-  --checkpoint <run>/train/checkpoints/<step>.ckpt \
-  --calibration <deploy.yaml> --initial-pose <initial_pose.json> \
-  --port can_follower --wrist-serial <d405-serial> \
-  --initialize --execute \
-  --execution-mode chunk --query-every 20 \
-  --speed-percent 40 --control-hz 30 --gripper-effort 3000 \
-  --duration 90 --save-every 10 --output <rollout-dir>
+# 只读检查图像、反馈和模型输出
+python -m egomimic.robot.piper.rollout_joint --checkpoint <ckpt> --calibration <setup.yaml> --duration 5
+
+# 低速短时执行，确认方向后再加长 --duration
+python -m egomimic.robot.piper.rollout_joint --checkpoint <ckpt> --calibration <setup.yaml> \
+  --execute --speed-percent 30 --duration 3 --execution-mode chunk --query-every 30
 ```
 
-- `<deploy.yaml>` 与 `calibration.yaml` 结构相同：`cameras.d435if` 需含本场景的
-  `serial`、`intrinsics` 与手眼 `extrinsics`（`T_base_camera`），`cameras.d405` 含
-  `serial`；`tcp` 与 `kinematics` 必须与训练位姿标签使用的运动学一致。
-- `<initial_pose.json>` 取示范首帧 follower 反馈的均值（`raw_feedback`）。
-- 残差关节头每次重规划都以当前反馈为锚点，首步的系统偏差会随重规划次数累积；
-  因此该任务用较长的 chunk 前缀（`--query-every 20`），而不是逐步重规划。
+### 执行方式
+
+- `--execution-mode ensemble`（默认）：每步重新预测，把过去各 chunk 对当前时刻的预测按
+  `exp(-decay * age)`（`--ensemble-decay`）加权平均。
+- `--execution-mode chunk --query-every N`：执行 N 步预测后再观测、重规划（`--chunk-size` 同义）。
+  残差关节头每次重规划都以当前反馈为锚点，首步的系统偏差会随重规划次数累积；
+  这类模型宜用较长的 N。
+- `--execution-mode time-ensemble`：每次推理后按 `--control-hz` 发送 `--query-every` 条指令，
+  各 chunk 按墙钟时间线性插值到当前时刻，再按龄加权。
+- `--control-hz`：指令发送频率，默认与训练数据相同的 30 Hz；实际频率还受推理和相机读取耗时限制。
+- `--speed-percent`：SDK 关节速度百分比（不是末端线速度）。
+- `--gripper-effort 0..5000`：夹爪力度（0.001 N·m），应与示教时一致。
+- `--flow-seed`：FM 头的固定初始噪声，使重复实验可复现；MLP 和残差头为确定性输出。
+
+### 起始状态
+
+- `--initialize --initial-pose <initial_pose.json>`：先以 `--init-speed-percent`（默认 20%）回到
+  起始姿态，反馈连续三次进入 1°/5 mm 容差后才开始计时。过程写入 `initialization.jsonl` 和
+  `initialization.json`。保存姿态来自真实反馈，可能因零位偏差略超 URDF 范围，执行前会先
+  裁剪到可命令范围。
+- 进入执行后先把夹爪张开到 `--start-gripper-mm`（默认 100 mm）并确认到位，再读第一帧策略输入；
+  示范从张开状态开始，夹爪开度偏小会被模型误判为抓取阶段。`--start-gripper-mm 0` 跳过，
+  `--min-start-gripper-mm` 设定起始开度下限。
+
+### 运行中的检查
+
+- 要求 CAN/MOVE-J 控制状态和六个电机使能连续稳定 0.5 s 后才启动；控制器离开有效状态立即停止。
+- 拒绝相对当前反馈跨度超过 `--max-chunk-displacement-deg`（默认 55°）的 chunk；指令领先真实关节
+  超过 `--max-tracking-error-deg`（默认 30°）时停止；`--max-command-step-deg` 限制单次指令增量。
+- URDF 限位：超出不超过 `--joint-limit-tolerance-deg`（默认 3°）的预测裁剪回边界，更大则停止。
+  follower 标定范围可能略超 URDF 名义边界（如 J2/J3 的 0°），因此示范标签也可能轻微越界。
+- `--tracking-gate-deg`：大于 0 时，同一目标保持到反馈进入该误差后再推进，期间保持当前夹爪开度；
+  超过 `--tracking-gate-timeout` 停止。
+- MLP 头输出无界：部署先把归一化预测裁剪到 `[-1, 1]`，再限制在训练动作各 horizon 的 1%–99%
+  分位范围，最后应用 URDF 限位。FM 头沿用 z-score 归一化，不做这一裁剪。
+
+### 日志
+
+默认写入 `.local_calibration/rollouts_joint/<时间戳>/`（`--output` 可改）：`config.json` 记录全部参数、
+checkpoint 哈希和代码版本；`commands.jsonl` 逐条记录原预测、实际命令、越界量、控制状态和
+是否发送；每 `--save-every` 次推理保存一份无压缩 NPZ（两路图像与完整预测），被拒绝的 chunk
+总会保存。异常写入带运行阶段和 traceback 的 `error.json`。
+
+## 笛卡尔输出模型：`rollout`
+
+用于输出相机坐标系 TCP 动作段 `[xyz, yaw, pitch, roll, gripper]` 的模型。每步转换到基座坐标后
+做数值 IK（以当前关节角为初值，段内以上一解为初值），位置残差超过 5 mm 或姿态残差超过 3°
+时不发送。需要 setup 中的前视外参，且 TCP 必须与训练标签使用的运动学一致（包括拟合的 TCP 修正）。
+
+```bash
+python -m egomimic.robot.piper.rollout --checkpoint <ckpt> --calibration <setup.yaml> --duration 5
+python -m egomimic.robot.piper.rollout --checkpoint <ckpt> --calibration <setup.yaml> \
+  --execute --speed-percent 10 --duration 30 --query-every 1
+```
+
+日志写入 `.local_calibration/rollouts/<时间戳>/`：`config.json`、`query_*.npz`（图像、反馈、模型输入、
+完整预测）、`commands.jsonl`（TCP 目标、IK 解、残差、耗时、是否发送）。
+
+## 控制链检查：`control_check`
+
+```bash
+python -m egomimic.robot.piper.control_check --execute --calibration <setup.yaml>
+```
+
+默认以 10% 速度让 J1 正向移动 2°，连续三次进入 0.3° 误差后返回原角度并保持 1 s，只用 SDK
+绝对关节位置控制；结果写入 `.local_calibration/control_checks/<时间戳>/`。可用 `--joint`、`--delta-deg`、
+`--speed-percent`、`--timeout` 调整。

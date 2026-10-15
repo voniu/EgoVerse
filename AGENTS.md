@@ -10,6 +10,7 @@
   first and do not re-propose a rejected option without new evidence.
 - Architecture overview: `docs/piper_model_architecture_evolution.md`.
 - Training and HPC launcher usage: `docs/piper_residual_joint_transformer_training.md`.
+- New machine or scene (cameras, hand-eye, TCP check, start pose, deployment): `docs/piper_setup.md`.
 
 ## Shell / Command Execution
 To run commands in the interactive shell, `source emimic/bin/activate` first. Apply this before
