@@ -34,3 +34,10 @@ On other clusters, follow the cluster instructions in the private knowledge repo
 Record results, decisions, open questions and pitfalls in the private knowledge repository
 (see `~/.config/agents/GLOBAL.md`, command `/capture`), never in this public repository.
 Never commit credentials, cluster accounts or unpublished results here.
+
+## What belongs in this repository
+Reusable code and procedures only. Do not commit results of individual runs (metrics, success
+rates, job IDs, dated measurements) or parameters bound to one machine or scene (camera serials,
+intrinsics, hand-eye extrinsics, start poses, local paths). Commit instead the documented,
+scripted procedure that produces those parameters on a new setup, plus an example/template
+config with placeholders; real values live in local, untracked config.
