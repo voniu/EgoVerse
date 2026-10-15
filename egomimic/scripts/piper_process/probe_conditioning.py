@@ -1,5 +1,6 @@
 """Fixed-noise condition swaps and FM velocity errors on eight cached observations."""
 
+import argparse
 import json
 from pathlib import Path
 
@@ -10,11 +11,18 @@ from egomimic.scripts.piper_process.evaluate_full import ACTION, DOMAIN, load_mo
 
 
 def main():
-    torch.set_num_threads(4)
-    root = Path(".local_calibration/convergence_eight")
-    wrapper, _ = load_model(
-        Path(".local_calibration/hpc/results/checkpoints/a/best.ckpt")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument(
+        "--run-dir",
+        type=Path,
+        required=True,
+        help="check_convergence --samples 8 output (fm_checkpoint.pt, inputs.pt)",
     )
+    args = parser.parse_args()
+    torch.set_num_threads(4)
+    root = args.run_dir
+    wrapper, _ = load_model(args.checkpoint)
     head = wrapper.model.nets["policy"].heads[DOMAIN]
     head.load_state_dict(
         torch.load(root / "fm_checkpoint.pt", map_location="cuda", weights_only=False)[

@@ -8,8 +8,10 @@
 #SBATCH --job-name=piper-bias
 
 # Open-loop first-step bias of one checkpoint on train and validation episodes.
-#   sbatch -A <acct> -p gpu --export=ALL,PIPER_ENV_SETUP=...,PIPER_DATA_DIR=... \
+#   sbatch -A <acct> -p gpu --export=ALL,PIPER_ENV_SETUP=...,PIPER_DATA_DIR=...,\
+#     PIPER_VALID_EPISODES="6 7 ...",PIPER_TRAIN_EPISODES="0 12 ..." \
 #     openloop_bias.sbatch <checkpoint> <output-dir>
+# Episode indices must match the split of the checkpoint's training run.
 set -euo pipefail
 CHECKPOINT=${1:?checkpoint}
 OUT=${2:?output directory}
@@ -19,11 +21,10 @@ PYTHON=$(command -v python)
 cd "$CODE"
 export PYTHONPATH="$CODE:${PYTHONPATH:-}" MPLBACKEND=Agg OMP_NUM_THREADS=4
 mkdir -p "$OUT"
-# Validation episodes of the assembly split (valid_ratio 0.1) and five training ones.
 for split in valid train; do
   case $split in
-    valid) episodes=(6 7 15 22 39 42 66) ;;
-    train) episodes=(0 12 30 48 60) ;;
+    valid) read -r -a episodes <<< "${PIPER_VALID_EPISODES:?set PIPER_VALID_EPISODES}" ;;
+    train) read -r -a episodes <<< "${PIPER_TRAIN_EPISODES:?set PIPER_TRAIN_EPISODES}" ;;
   esac
   srun --export=ALL "$PYTHON" -m egomimic.scripts.piper_process.openloop_bias \
     --checkpoint "$CHECKPOINT" --dataset "${PIPER_DATA_DIR:?set PIPER_DATA_DIR}" \

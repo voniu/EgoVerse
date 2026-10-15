@@ -73,13 +73,11 @@ def episode_metrics(prediction, target, valid, geometry):
 def main():
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument(
-        "--dataset", type=Path, default=Path(".local_calibration/piper_all")
-    )
+    parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument(
         "--split",
         type=Path,
-        default=Path(".local_calibration/aria_gen2_aligned/cotrain_data_check.json"),
+        required=True,
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--batch-size", type=int, default=32)

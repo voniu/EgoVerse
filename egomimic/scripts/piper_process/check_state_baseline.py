@@ -1,5 +1,6 @@
 """Fit CPU state-only position baselines on the fixed training episodes."""
 
+import argparse
 import json
 from pathlib import Path
 
@@ -27,11 +28,24 @@ def features(state, mean, std, quadratic):
 
 
 def main():
-    root = Path(".local_calibration")
-    split = json.loads(
-        (root / "aria_gen2_aligned/cotrain_data_check.json").read_text()
-    )["piper_right_arm"]
-    train = [read_episode(root / "piper_all", name) for name in split["train_paths"]]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dataset", type=Path, required=True, help="Piper Zarr folder")
+    parser.add_argument(
+        "--split",
+        type=Path,
+        required=True,
+        help="cotrain data check JSON with piper_right_arm train/valid paths",
+    )
+    parser.add_argument(
+        "--reference-dir",
+        type=Path,
+        required=True,
+        help="model predictions A_<episode>.npz to compare against",
+    )
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    split = json.loads(args.split.read_text())["piper_right_arm"]
+    train = [read_episode(args.dataset, name) for name in split["train_paths"]]
     states = np.concatenate([s for s, _ in train])
     mean, std = states.mean(0), states.std(0)
     results = {}
@@ -47,14 +61,14 @@ def main():
             weights.append(np.linalg.solve(x.T @ x + penalty, x.T @ y))
         rows = []
         for name in split["valid_paths"]:
-            s, a = read_episode(root / "piper_all", name)
+            s, a = read_episode(args.dataset, name)
             pred = np.stack(
                 [features(s, mean, std, quadratic) @ w for w in weights], axis=1
             )
             indices = np.arange(len(s))[:, None] + np.arange(30)
             valid = indices < len(s)
             target = a[np.minimum(indices, len(s) - 1)]
-            saved = np.load(root / "mlp_final_validation" / f"A_{name}.npz")
+            saved = np.load(args.reference_dir / f"A_{name}.npz")
             np.testing.assert_allclose(target, saved["target"][..., :3], atol=1e-7)
             np.testing.assert_array_equal(valid, saved["valid"])
             error = np.linalg.norm(pred - target, axis=-1) * 1000
@@ -78,7 +92,7 @@ def main():
         protocol="State-only xyz regression; train63/valid7; horizon30; no padded training targets; equal-episode validation; ridge=1 fixed before scoring. No images or validation fitting.",
         results=results,
     )
-    (root / "state_baseline.json").write_text(json.dumps(report, indent=2))
+    args.output.write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
 
 

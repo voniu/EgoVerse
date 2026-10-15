@@ -30,24 +30,30 @@ def main():
         type=Path,
         help="Load diagnostic head weights; start a fresh optimizer and cosine schedule.",
     )
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument(
+        "--episode", type=Path, required=True, help="training-split Zarr episode"
+    )
+    parser.add_argument(
+        "--valid-report",
+        type=Path,
+        required=True,
+        help="JSON whose 'episodes' lists validation episodes (excluded here)",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     torch.set_num_threads(4)
     torch.manual_seed(2026)
     args.output.mkdir(exist_ok=True)
-    wrapper, checkpoint_step = load_model(
-        Path(".local_calibration/hpc/results/checkpoints/a/best.ckpt")
-    )
+    wrapper, checkpoint_step = load_model(args.checkpoint)
     model, policy = wrapper.model, wrapper.model.nets["policy"]
     policy.train_mode = False
     head = policy.heads[DOMAIN]
     if args.resume_fm:
         resume = torch.load(args.resume_fm, map_location="cuda", weights_only=False)
         head.load_state_dict(resume["head"], strict=True)
-    episode = Path(".local_calibration/piper_all/teddy_0912_1_episode_000.zarr")
-    valid = json.loads(
-        Path(".local_calibration/full_validation/report.json").read_text()
-    )["episodes"]
+    episode = args.episode
+    valid = json.loads(args.valid_report.read_text())["episodes"]
     assert episode.stem not in valid
     ds = ZarrDataset(
         episode, Piper.get_keymap(), Piper.get_transform_list(), strict=True

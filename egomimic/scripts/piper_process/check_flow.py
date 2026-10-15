@@ -58,6 +58,14 @@ def main():
         default=1,
         help="Independent noise draws per update for the same single observation.",
     )
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--dataset", type=Path, required=True, help="Piper Zarr folder")
+    parser.add_argument(
+        "--valid-report",
+        type=Path,
+        required=True,
+        help="JSON whose 'episodes' lists validation episodes (excluded here)",
+    )
     parser.add_argument("--scope", choices=["head", "full"], default="head")
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument(
@@ -70,19 +78,15 @@ def main():
     torch.manual_seed(42)
     output = args.output
     output.mkdir(exist_ok=True)
-    wrapper, step = load_model(
-        Path(".local_calibration/hpc/results/checkpoints/a/best.ckpt")
-    )
+    wrapper, step = load_model(args.checkpoint)
     model = wrapper.model
     policy = model.nets["policy"]
     policy.train_mode = False
     head = policy.heads[DOMAIN]
-    manifest = json.loads(
-        Path(".local_calibration/full_validation/report.json").read_text()
-    )
+    manifest = json.loads(args.valid_report.read_text())
     path = next(
         p
-        for p in sorted(Path(".local_calibration/piper_all").glob("*.zarr"))
+        for p in sorted(args.dataset.glob("*.zarr"))
         if p.stem not in manifest["episodes"]
     )
     ds = ZarrDataset(path, Piper.get_keymap(), Piper.get_transform_list(), strict=True)

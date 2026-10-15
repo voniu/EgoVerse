@@ -101,8 +101,8 @@ def project(points, K):
 def convert(
     path,
     output,
-    alignment=None,
-    task_name="Put bear into basket",
+    alignment,
+    task_name,
     vio_source="vio",
 ):
     provider, ids, times, hands, hand_times, vio, vio_times = read_tracking(path)
@@ -134,12 +134,12 @@ def convert(
     )
     runs = valid_runs(valid)
     start, end = max(runs, key=lambda run: run[1] - run[0], default=(0, 0))
-    assert (
-        end - start >= 30
-    ), "No continuous segment with a complete 30-frame action chunk"
-    assert (
-        np.diff(times[start:end]).max() < 50_000_000
-    ), "RGB discontinuity: do not compress missing time"
+    assert end - start >= 30, (
+        "No continuous segment with a complete 30-frame action chunk"
+    )
+    assert np.diff(times[start:end]).max() < 50_000_000, (
+        "RGB discontinuity: do not compress missing time"
+    )
 
     source_camera = provider.get_device_calibration().get_camera_calib("camera-rgb")
     width, height = 640, 480
@@ -317,7 +317,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--task-name",
-        default="Put bear into basket",
+        required=True,
         help="Task name and whole-episode language annotation",
     )
     parser.add_argument(
@@ -336,9 +336,9 @@ if __name__ == "__main__":
     if args.alignment:
         alignment = np.asarray(json.loads(args.alignment.read_text())["R_wrist_tool"])
         np.testing.assert_allclose(alignment.T @ alignment, np.eye(3), atol=1e-8)
-        assert np.isclose(
-            np.linalg.det(alignment), 1
-        ), "Alignment must be a proper rotation"
+        assert np.isclose(np.linalg.det(alignment), 1), (
+            "Alignment must be a proper rotation"
+        )
     paths = sorted(args.vrs.glob("*.vrs")) if args.vrs.is_dir() else [args.vrs]
     reports, failures = [], []
     for path in paths:

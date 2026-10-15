@@ -86,9 +86,7 @@ def main():
     parser.add_argument(
         "--evaluation", type=Path, default=Path(".local_calibration/full_validation")
     )
-    parser.add_argument(
-        "--dataset", type=Path, default=Path(".local_calibration/piper_all")
-    )
+    parser.add_argument("--dataset", type=Path, required=True)
     args = parser.parse_args()
     output = args.evaluation / "diagnostics"
     output.mkdir(exist_ok=True)
@@ -107,7 +105,7 @@ def main():
         for label in ["A", "B", "Hold state", "Hold command"]:
             saved = np.load(
                 args.evaluation
-                / f'{label if label in ("A", "B") else "A"}_{episode}.npz'
+                / f"{label if label in ('A', 'B') else 'A'}_{episode}.npz"
             )
             target, valid = saved["target"], saved["valid"]
             assert len(target) == n
