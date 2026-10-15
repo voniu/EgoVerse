@@ -123,9 +123,12 @@ J2/J3 分别位于 13.899°/-9.608°，避开二者的 0°边界。
 部署参数均可从命令行调整：
 
 - `--speed-percent`：Piper SDK 速度百分比，默认 30。
-- `--execution-mode ensemble|chunk`：时间集成或连续执行一个 chunk 前缀。
+- `--execution-mode ensemble|chunk|time-ensemble`：按推理步计数的时间集成、连续执行
+  一个 chunk 前缀，或按墙钟时间对齐的时间集成（每次推理后按 `--control-hz` 发送
+  `--query-every` 条指令，各 chunk 在当前时刻线性插值后按龄加权）。
 - `--chunk-size 1..30`：chunk 模式中每次重规划前执行的预测步数；等价于
   `--query-every`。模型本身固定输出 30 步，改变这里不会改变网络结构。
+- `--gripper-effort 0..5000`：夹爪力度（SDK 单位，默认 1000）；应与示教时一致。
 - `--control-hz`：命令发送频率，默认及训练数据频率均为 30Hz。
 - `--tracking-gate-deg`：大于0时，同一个关节目标会保持到真实反馈进入该误差后再
   推进下一步；等待期间保持当前夹爪开度，避免手臂尚未到达抓取位姿就闭合。
@@ -180,3 +183,25 @@ Joint Head 训练目标是 30 步 action chunk。当前部署默认每步重新�
 ```bash
 uv pip install --python emimic/bin/python -r egomimic/robot/piper/requirements-deploy.txt
 ```
+
+## Assembly 任务部署设置（D435IF 前视 + 腕部 D405，2026-10）
+
+“Insert the ignition coil into the engine” 的 Residual Joint checkpoint 使用以下设置：
+
+```bash
+python -m egomimic.robot.piper.rollout_joint \
+  --checkpoint <run>/train/checkpoints/<step>.ckpt \
+  --calibration <deploy.yaml> --initial-pose <initial_pose.json> \
+  --port can_follower --wrist-serial <d405-serial> \
+  --initialize --execute \
+  --execution-mode chunk --query-every 20 \
+  --speed-percent 40 --control-hz 30 --gripper-effort 3000 \
+  --duration 90 --save-every 10 --output <rollout-dir>
+```
+
+- `<deploy.yaml>` 与 `calibration.yaml` 结构相同：`cameras.d435if` 需含本场景的
+  `serial`、`intrinsics` 与手眼 `extrinsics`（`T_base_camera`），`cameras.d405` 含
+  `serial`；`tcp` 与 `kinematics` 必须与训练位姿标签使用的运动学一致。
+- `<initial_pose.json>` 取示范首帧 follower 反馈的均值（`raw_feedback`）。
+- 残差关节头每次重规划都以当前反馈为锚点，首步的系统偏差会随重规划次数累积；
+  因此该任务用较长的 chunk 前缀（`--query-every 20`），而不是逐步重规划。

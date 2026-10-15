@@ -28,7 +28,7 @@ test -d "$RUN_DIR" && test -f "$lock" && test -x "$uv"
 test "$("$uv" --version | awk '{print $2}')" = 0.12.20
 if [[ -e "$env_dir" ]]; then echo "Environment already exists: $env_dir" >&2; exit 1; fi
 
-scratch=$(mktemp -d "/scratch/local/zekun-piper-env-${SLURM_JOB_ID}.XXXXXX")
+scratch=$(mktemp -d "/scratch/local/${USER}-piper-env-${SLURM_JOB_ID}.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 export TMPDIR="$scratch"
 install -d -m 700 "$env_parent"

@@ -1,5 +1,5 @@
 # Arrhenius training environment for PIPER_ENV_SETUP (source, do not execute).
-# Follows /home/zekun/.config/hpc/CONVENTION.md: paths from env.sh, a uv venv
+# Follows ~/.config/hpc/CONVENTION.md (cluster convention): paths from env.sh, a uv venv
 # per project/arch/profile under $HPC_ENVS, GPU nodes only.
 source "$HOME/.config/hpc/env.sh"
 test "$(uname -m)" = aarch64
